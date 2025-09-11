@@ -518,6 +518,9 @@ def generate_report(df_grid, df_archive, month, year):
 sessions = {}
 
 # === Маршруты Flask ===
+@app.route('/kaiten-addon')
+def kaiten_addon():
+    return send_file('index.html')
 @app.route('/')
 def index():
     current_year = datetime.now().year
