@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Test Addon</title>
+  <title>Отчеты Kaiten</title>
   <!-- Подключаем Kaiten Web SDK -->
   <script src="https://files.kaiten.ru/web-sdk/v1.min.js"></script>
   <script>
@@ -13,14 +13,16 @@
           window.Addon.initialize({
             card_buttons: function() {
               return [{
-                text: '✅ Тест',
+                text: '📊 Сгенерировать отчет',
                 callback: function(ctx) {
-                  alert('Тестовая кнопка работает!');
+                  // Открываем ваше Flask-приложение в новой вкладке
+                  const appUrl = 'https://kaiten-report-generator.onrender.com';
+                  window.open(appUrl, '_blank');
                 }
               }];
             }
           });
-          console.log('✅ Addon initialized');
+          console.log('✅ Kaiten addon initialized');
         } catch (error) {
           console.error('❌ Addon error:', error);
         }
@@ -38,6 +40,5 @@
   </style>
 </head>
 <body>
-  <!-- Этот файл пустой, потому что он только для инициализации кнопки -->
 </body>
 </html>
