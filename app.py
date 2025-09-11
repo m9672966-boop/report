@@ -358,7 +358,13 @@ def generate_report(df_grid, df_archive, month, year):
         logger.info(f"Номер месяца: {month_num} -> название: {month_name}")
 
         month_str = f"{year}-{month_num:02d}"
-        logger.info(f"Период для фильтрации: {month_str}")
+        start_date = pd.Timestamp(f"{year}-{month_num:02d}-01")
+        if month_num == 12:
+            end_date = pd.Timestamp(f"{year+1}-01-01")
+        else:
+            end_date = pd.Timestamp(f"{year}-{month_num+1:02d}-01")
+
+        logger.info(f"Период для фильтрации: с {start_date} по {end_date}")
 
         # === 4. Подсчет статистики ===
         logger.info("\n4. ПОДСЧЕТ СТАТИСТИКИ:")
@@ -372,20 +378,46 @@ def generate_report(df_grid, df_archive, month, year):
             is_text_author = pd.Series([False] * len(df_merged))
             is_designer = pd.Series([True] * len(df_merged))
 
-        # Фильтруем задачи по периоду (упрощенная версия)
-        created_design = df_merged[is_designer] if 'Дата создания' in df_merged.columns else pd.DataFrame()
-        completed_design = df_merged[is_designer] if 'Выполнена' in df_merged.columns else pd.DataFrame()
-        created_text = df_merged[is_text_author] if 'Дата создания' in df_merged.columns else pd.DataFrame()
-        completed_text = df_merged[is_text_author] if 'Выполнена' in df_merged.columns else pd.DataFrame()
-
-        # Подсчет задач без ответственного
-        if 'Ответственный' in df_merged.columns:
-            no_responsible = df_merged[df_merged['Ответственный'].isna()]
-            no_resp_makets = no_responsible['Количество макетов'].sum() if 'Количество макетов' in no_responsible.columns else 0
-            no_resp_variants = no_responsible['Количество предложенных вариантов'].sum() if 'Количество предложенных вариантов' in no_responsible.columns else 0
+        # Фильтруем задачи по периоду
+        if 'Дата создания' in df_merged.columns:
+            created_mask = (df_merged['Дата создания'] >= start_date) & (df_merged['Дата создания'] < end_date)
+            created_design = df_merged[is_designer & created_mask]
+            created_text = df_merged[is_text_author & created_mask]
         else:
-            no_resp_makets = 0
-            no_resp_variants = 0
+            created_design = pd.DataFrame()
+            created_text = pd.DataFrame()
+
+        if 'Выполнена' in df_merged.columns:
+            completed_mask = (df_merged['Выполнена'] >= start_date) & (df_merged['Выполнена'] < end_date)
+            completed_design = df_merged[is_designer & completed_mask]
+            completed_text = df_merged[is_text_author & completed_mask]
+        else:
+            completed_design = pd.DataFrame()
+            completed_text = pd.DataFrame()
+
+        # === Подсчет задач без ответственного ===
+        no_resp_mask = df_merged['Ответственный'].isna() if 'Ответственный' in df_merged.columns else pd.Series([False] * len(df_merged))
+
+        # Поступившие без ответственного
+        if 'Дата создания' in df_merged.columns:
+            no_resp_created = df_merged[no_resp_mask & created_mask]
+        else:
+            no_resp_created = pd.DataFrame()
+
+        # Завершенные без ответственного
+        if 'Выполнена' in df_merged.columns:
+            no_resp_completed = df_merged[no_resp_mask & completed_mask]
+        else:
+            no_resp_completed = pd.DataFrame()
+
+        # Подсчет макетов и вариантов
+        def sum_column(df, col):
+            return df[col].sum() if col in df.columns else 0
+
+        no_resp_created_makets = sum_column(no_resp_created, 'Количество макетов')
+        no_resp_created_variants = sum_column(no_resp_created, 'Количество предложенных вариантов')
+        no_resp_completed_makets = sum_column(no_resp_completed, 'Количество макетов')
+        no_resp_completed_variants = sum_column(no_resp_completed, 'Количество предложенных вариантов')
 
         # === 5. Формирование отчета по дизайнерам ===
         logger.info("\n5. ФОРМИРОВАНИЕ ОТЧЕТА ПО ДИЗАЙНЕРАМ:")
@@ -451,26 +483,26 @@ def generate_report(df_grid, df_archive, month, year):
             
             report = pd.concat([report, pd.DataFrame([total_row])], ignore_index=True)
 
-        # === 6. Карточки маркетплейсов ===
-        logger.info("\n6. ПОДСЧЕТ КАРТОЧЕК МАРКЕТПЛЕЙСОВ:")
-        mp_cards_count = count_marketplace_cards(month_num, year)
-        logger.info(f"Найдено карточек маркетплейсов: {mp_cards_count}")
-
-        # === 7. Формирование текстового отчета ===
+        # === 6. Формирование текстового отчета ===
         text_report = f"""ОТЧЕТ ЗА {month_name.upper()} {year} ГОДА
 
 Дизайнеры:
 - Поступило задач: {len(created_design)}
 - Выполнено задач: {len(completed_design)}
-- Готовых карточек МП: {mp_cards_count} SKU
 
 Текстовые задачи:
 - Поступило: {len(created_text)}
 - Выполнено: {len(completed_text)}
 
-Задачи без ответственного:
-- Макетов: {no_resp_makets}
-- Вариантов: {no_resp_variants}
+Задачи без ответственного (поступившие):
+- Задач: {len(no_resp_created)}
+- Макетов: {int(no_resp_created_makets)}
+- Вариантов: {int(no_resp_created_variants)}
+
+Задачи без ответственного (завершенные):
+- Задач: {len(no_resp_completed)}
+- Макетов: {int(no_resp_completed_makets)}
+- Вариантов: {int(no_resp_completed_variants)}
 
 СТАТИСТИКА ПО ВЫПОЛНЕННЫМ ЗАДАЧАМ ДИЗАЙНЕРОВ:
 (только задачи, завершенные в отчетном периоде)"""
