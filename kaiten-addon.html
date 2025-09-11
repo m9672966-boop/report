@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Отчеты Kaiten</title>
+  <title>Test Addon</title>
   <!-- Подключаем Kaiten Web SDK -->
   <script src="https://files.kaiten.ru/web-sdk/v1.min.js"></script>
   <script>
@@ -13,16 +13,14 @@
           window.Addon.initialize({
             card_buttons: function() {
               return [{
-                text: '📊 Сгенерировать отчет',
+                text: '✅ Тест',
                 callback: function(ctx) {
-                  // Замените URL на ваш реальный URL приложения на Render
-                  const appUrl = 'https://kaiten-report-generator.onrender.com';
-                  window.open(appUrl, '_blank');
+                  alert('Тестовая кнопка работает!');
                 }
               }];
             }
           });
-          console.log('✅ Kaiten addon initialized');
+          console.log('✅ Addon initialized');
         } catch (error) {
           console.error('❌ Addon error:', error);
         }
