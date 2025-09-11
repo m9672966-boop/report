@@ -529,6 +529,13 @@ def index():
 @app.route('/test')
 def test():
     return "Hello from Flask!"
+@app.route('/debug')
+def debug():
+    return jsonify({
+        'user_agent': request.headers.get('User-Agent'),
+        'referer': request.headers.get('Referer'),
+        'origin': request.headers.get('Origin')
+    })
 @app.route('/generate_report', methods=['POST'])
 def generate_report_route():
     try:
