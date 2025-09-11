@@ -1,8 +1,13 @@
 services:
-  - type: static
+  - type: web
     name: kaiten-report-addon
-    env: static
-    buildCommand: echo "Nothing to build"
-    staticPublishPath: ./
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
     plan: free
     region: oregon
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: SECRET_KEY
+        generateValue: true
