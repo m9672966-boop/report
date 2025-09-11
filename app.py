@@ -526,7 +526,9 @@ def serve_kaiten_addon():
 def index():
     current_year = datetime.now().year
     return render_template_string(HTML_TEMPLATE, current_year=current_year)
-
+@app.route('/test')
+def test():
+    return "Hello from Flask!"
 @app.route('/generate_report', methods=['POST'])
 def generate_report_route():
     try:
