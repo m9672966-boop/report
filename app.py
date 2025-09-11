@@ -519,8 +519,9 @@ sessions = {}
 
 # === Маршруты Flask ===
 @app.route('/kaiten-addon')
-def kaiten_addon():
-    return send_file('index.html')
+def serve_kaiten_addon():
+    """Отдает HTML-файл для Kaiten Addon"""
+    return send_file('kaiten-addon.html')
 @app.route('/')
 def index():
     current_year = datetime.now().year
