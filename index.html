@@ -6,9 +6,9 @@
   <!-- Подключаем Kaiten Web SDK -->
   <script src="https://files.kaiten.ru/web-sdk/v1.min.js"></script>
   <script>
-    // Ждем загрузки SDK
-    setTimeout(function() {
-      if (window.Addon) {
+    // Инициализация после загрузки SDK
+    document.addEventListener('DOMContentLoaded', function() {
+      if (typeof window.Addon !== 'undefined') {
         try {
           window.Addon.initialize({
             card_buttons: function() {
@@ -16,31 +16,42 @@
                 text: '📊 Сгенерировать отчет',
                 callback: function(ctx) {
                   // Открываем ваше Flask-приложение в новой вкладке
-                  // Замените URL на ваш реальный URL приложения на Render
                   const appUrl = 'https://kaiten-report-generator.onrender.com';
                   window.open(appUrl, '_blank');
                 }
               }];
             }
           });
-          console.log('✅ Kaiten addon initialized');
+          console.log('✅ Kaiten addon initialized successfully');
         } catch (error) {
-          console.error('❌ Addon error:', error);
+          console.error('❌ Addon initialization error:', error);
         }
       } else {
-        console.error('❌ Kaiten SDK not found');
+        console.error('❌ Kaiten SDK not loaded');
+        // Попробуем перезагрузить SDK
+        setTimeout(function() {
+          if (typeof window.Addon !== 'undefined') {
+            window.location.reload();
+          }
+        }, 2000);
       }
-    }, 1000);
+    });
   </script>
   <style>
     body { 
       background: transparent; 
       margin: 0; 
       padding: 0; 
+      font-family: Arial, sans-serif;
+    }
+    .loading {
+      padding: 20px;
+      text-align: center;
+      color: #666;
     }
   </style>
 </head>
 <body>
-  <!-- Этот файл пустой, потому что он только для инициализации кнопки -->
+  <div class="loading">Загрузка аддона Kaiten...</div>
 </body>
 </html>
