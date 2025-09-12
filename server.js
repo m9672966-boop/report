@@ -16,13 +16,11 @@ app.use(cors());
 app.use(express.static('.'));
 app.use(express.json());
 
-// Папка для загрузок
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) {
   fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 }
 
-// Multer для загрузки файлов
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     cb(null, UPLOAD_DIR);
@@ -33,7 +31,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// === ФУНКЦИЯ ЗАГРУЗКИ ФАЙЛА В KAITEN ===
+// === ЗАГРУЗКА ФАЙЛА В KAITEN ===
 async function uploadFileToKaiten(filePath, fileName, cardId) {
   try {
     const stats = fs.statSync(filePath);
@@ -71,11 +69,16 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === ФУНКЦИЯ ГЕНЕРАЦИИ ОТЧЁТА ===
+// === ГЕНЕРАЦИЯ ОТЧЁТА ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
     // Используем ТОЛЬКО Архив для основного отчёта
-    let dfMerged = { columns: dfArchive.columns, data: dfArchive.data };
+    let dfMerged = { columns: dfArchive.columns,  dfArchive.data };
+
+    // Проверка данных
+    if (!dfMerged.data || !Array.isArray(dfMerged.data)) {
+      throw new Error("Данные из файла 'Архив.xlsx' отсутствуют или повреждены");
+    }
 
     // Преобразование дат
     dfMerged.data = dfMerged.data.map(row => {
@@ -158,7 +161,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     report.push(totalRow);
 
     // Текстовый отчёт
-    const mpCardsCount = 0; // Пока 0
+    const mpCardsCount = 0;
 
     const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
 
@@ -212,7 +215,6 @@ app.post('/api/upload', upload.fields([
     const gridSheet = gridWorkbook.Sheets[gridWorkbook.SheetNames[0]];
     const archiveSheet = archiveWorkbook.Sheets[archiveWorkbook.SheetNames[0]];
 
-    // Читаем все строки
     const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1 });
     const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1 });
 
@@ -260,6 +262,10 @@ app.post('/api/upload', upload.fields([
        archiveData
     };
 
+    // Логирование для отладки
+    console.log("Архив: колонки =", dfArchive.columns);
+    console.log("Архив: количество строк =", dfArchive.data ? dfArchive.data.length : 0);
+
     // Генерация отчёта
     const { report, textReport } = generateReport(
       dfGrid,
@@ -286,19 +292,12 @@ app.post('/api/upload', upload.fields([
     // ID карточки из переменных окружения
     const cardId = process.env.KAITEN_CARD_ID;
 
-    let uploadSuccess = true;
-
     if (cardId) {
       // Загружаем файлы в Kaiten
-      const excelUploaded = await uploadFileToKaiten(excelPath, `Отчет_${month}_${year}.xlsx`, cardId);
-      const txtUploaded = await uploadFileToKaiten(txtPath, `Статистика_${month}_${year}.txt`, cardId);
-      
-      if (!excelUploaded || !txtUploaded) {
-        uploadSuccess = false;
-      }
+      await uploadFileToKaiten(excelPath, `Отчет_${month}_${year}.xlsx`, cardId);
+      await uploadFileToKaiten(txtPath, `Статистика_${month}_${year}.txt`, cardId);
     } else {
       console.warn("KAITEN_CARD_ID не задан — файлы не будут загружены в Kaiten");
-      uploadSuccess = false;
     }
 
     // Удаляем временные файлы
