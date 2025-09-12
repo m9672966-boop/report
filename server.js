@@ -5,7 +5,8 @@ const xlsx = require('xlsx');
 const fs = require('fs-extra');
 const path = require('path');
 const archiver = require('archiver');
-const moment = require('moment');  
+const moment = require('moment');
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -30,33 +31,13 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
-// === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
-
-function mergeGridToArchive(dfGrid, dfArchive) {
-  const commonColumns = dfGrid.columns.filter(col => dfArchive.columns.includes(col));
-  if (commonColumns.length === 0) {
-    console.error("Нет общих колонок для объединения!");
-    return dfArchive;
-  }
-
-  const dfGridCommon = dfGrid.data.map(row => {
-    const newRow = {};
-    commonColumns.forEach(col => {
-      newRow[col] = row[col] || null;
-    });
-    return newRow;
-  });
-
-  const mergedData = [...dfArchive.data, ...dfGridCommon];
-  return { columns: commonColumns, data: mergedData };
-}
-
+// === ФУНКЦИЯ ГЕНЕРАЦИИ ОТЧЁТА ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
-    // 1. Объединение данных
-    let dfMerged = mergeGridToArchive(dfGrid, dfArchive);
+    // Используем ТОЛЬКО Архив для основного отчёта (в нём есть все нужные данные)
+    let dfMerged = { columns: dfArchive.columns, data: dfArchive.data };
 
-    // 2. Преобразование дат
+    // Преобразование дат
     dfMerged.data = dfMerged.data.map(row => {
       row['Дата создания'] = row['Дата создания'] ? new Date(row['Дата создания']) : null;
       row['Выполнена'] = row['Выполнена'] ? new Date(row['Выполнена']) : null;
@@ -64,21 +45,22 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       return row;
     });
 
-    // 3. Определение месяца
-    const monthObj = new Date(`${year} ${monthName}`);
-    if (isNaN(monthObj.getTime())) {
+    // Определение месяца
+    const monthObj = moment(monthName, 'MMMM', true);
+    if (!monthObj.isValid()) {
       throw new Error("Неверный месяц");
     }
-    const monthNum = monthObj.getMonth() + 1;
+    const monthNum = monthObj.month() + 1;
     const monthPeriod = `${year}-${monthNum.toString().padStart(2, '0')}`;
 
-    // 4. Подсчет статистики
+    // Подсчет статистики
     const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
     const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
     const isDesigner = (row) => !isTextAuthor(row) || row['Ответственный'] === 'Неизвестно';
 
-    const createdDesign = dfMerged.data.filter(row => 
-      isDesigner(row) && 
+    // Для статистики "поступило" — используем Грид
+    const createdDesign = dfGrid.data.filter(row => 
+      isDesigner({ Ответственный: row['Ответственный'] || 'Неизвестно' }) &&
       row['Дата создания'] && 
       moment(row['Дата создания']).format('YYYY-MM') === monthPeriod
     );
@@ -89,19 +71,28 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       moment(row['Выполнена']).format('YYYY-MM') === monthPeriod
     );
 
-    // 5. Формирование отчета по дизайнерам
+    // Формирование отчета по дизайнерам
     const reportMap = {};
     completedDesign.forEach(row => {
       const resp = row['Ответственный'];
       if (!reportMap[resp]) {
-        reportMap[resp] = { Задачи: 0, Макеты: 0, Варианты: 0, Оценка: 0, count: 0 };
+        reportMap[resp] = { 
+          Задачи: 0, 
+          Макеты: 0, 
+          Варианты: 0, 
+          Оценка: 0, 
+          count: 0 
+        };
       }
       reportMap[resp].Задачи += 1;
-      reportMap[resp].Макеты += row['Количество макетов'] || 0;
-      reportMap[resp].Варианты += row['Количество предложенных вариантов'] || 0;
+      reportMap[resp].Макеты += parseInt(row['Количество макетов']) || 0;
+      reportMap[resp].Варианты += parseInt(row['Количество предложенных вариантов']) || 0;
       if (row['Оценка работы']) {
-        reportMap[resp].Оценка += parseFloat(row['Оценка работы']);
-        reportMap[resp].count += 1;
+        const score = parseFloat(row['Оценка работы']);
+        if (!isNaN(score)) {
+          reportMap[resp].Оценка += score;
+          reportMap[resp].count += 1;
+        }
       }
     });
 
@@ -127,7 +118,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     report.push(totalRow);
 
     // Текстовый отчёт
-    const mpCardsCount = 0; // Упрощённо — пока 0
+    const mpCardsCount = 0; // Пока 0
 
     const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
 
@@ -137,7 +128,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
 - Готовых карточек МП: ${mpCardsCount} SKU
 
 Текстовые задачи:
-- Поступило: ${dfMerged.data.filter(row => isTextAuthor(row) && row['Дата создания'] && moment(row['Дата создания']).format('YYYY-MM') === monthPeriod).length}
+- Поступило: ${dfGrid.data.filter(row => isTextAuthor({ Ответственный: row['Ответственный'] || 'Неизвестно' }) && row['Дата создания'] && moment(row['Дата создания']).format('YYYY-MM') === monthPeriod).length}
 - Выполнено: ${dfMerged.data.filter(row => isTextAuthor(row) && row['Выполнена'] && moment(row['Выполнена']).format('YYYY-MM') === monthPeriod).length}
 
 СТАТИСТИКА ПО ВЫПОЛНЕННЫМ ЗАДАЧАМ ДИЗАЙНЕРОВ:
@@ -181,33 +172,37 @@ app.post('/api/upload', upload.fields([
     const gridSheet = gridWorkbook.Sheets[gridWorkbook.SheetNames[0]];
     const archiveSheet = archiveWorkbook.Sheets[archiveWorkbook.SheetNames[0]];
 
-    const dfGrid = xlsx.utils.sheet_to_json(gridSheet, { header: 1 });
-    const dfArchive = xlsx.utils.sheet_to_json(archiveSheet, { header: 1 });
+    // Читаем все строки
+    const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1 });
+    const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1 });
 
-    // Преобразуем в объекты с именами колонок
-    const gridColumns = dfGrid[0];
-    const archiveColumns = dfArchive[0];
+    // Убираем первую строку, если она пустая
+    const dfGrid = {
+      columns: allGridRows.length > 0 ? allGridRows[0] : [],
+      data: allGridRows.length > 1 ? allGridRows.slice(1).map(row => {
+        const obj = {};
+        dfGrid.columns.forEach((col, i) => {
+          obj[col] = row[i];
+        });
+        return obj;
+      }) : []
+    };
 
-    const gridData = dfGrid.slice(1).map(row => {
-      const obj = {};
-      gridColumns.forEach((col, i) => {
-        obj[col] = row[i];
-      });
-      return obj;
-    });
-
-    const archiveData = dfArchive.slice(1).map(row => {
-      const obj = {};
-      archiveColumns.forEach((col, i) => {
-        obj[col] = row[i];
-      });
-      return obj;
-    });
+    const dfArchive = {
+      columns: allArchiveRows.length > 0 ? allArchiveRows[0] : [],
+      data: allArchiveRows.length > 1 ? allArchiveRows.slice(1).map(row => {
+        const obj = {};
+        dfArchive.columns.forEach((col, i) => {
+          obj[col] = row[i];
+        });
+        return obj;
+      }) : []
+    };
 
     // Генерация отчёта
     const { report, textReport } = generateReport(
-      { columns: gridColumns, data: gridData },
-      { columns: archiveColumns, data: archiveData },
+      dfGrid,
+      dfArchive,
       month,
       parseInt(year)
     );
