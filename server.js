@@ -5,7 +5,6 @@ const xlsx = require('xlsx');
 const fs = require('fs-extra');
 const path = require('path');
 const archiver = require('archiver');
-const moment = require('moment');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -32,12 +31,6 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
-
-function countMarketplaceCards(monthNum, year) {
-  // TODO: Реализовать подсчёт файлов, если нужно
-  // Пока возвращаем 0, так как на сервере Render нет доступа к V:\
-  return 0;
-}
 
 function mergeGridToArchive(dfGrid, dfArchive) {
   const commonColumns = dfGrid.columns.filter(col => dfArchive.columns.includes(col));
@@ -72,11 +65,11 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     });
 
     // 3. Определение месяца
-    const monthObj = moment(monthName, 'MMMM', true);
-    if (!monthObj.isValid()) {
+    const monthObj = new Date(`${year} ${monthName}`);
+    if (isNaN(monthObj.getTime())) {
       throw new Error("Неверный месяц");
     }
-    const monthNum = monthObj.month() + 1;
+    const monthNum = monthObj.getMonth() + 1;
     const monthPeriod = `${year}-${monthNum.toString().padStart(2, '0')}`;
 
     // 4. Подсчет статистики
@@ -134,7 +127,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     report.push(totalRow);
 
     // Текстовый отчёт
-    const mpCardsCount = countMarketplaceCards(monthNum, year);
+    const mpCardsCount = 0; // Упрощённо — пока 0
 
     const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
 
@@ -273,15 +266,9 @@ app.get('/download', async (req, res) => {
     if (err) {
       console.error("Ошибка скачивания:", err);
     } else {
-      // Удаляем файл после скачивания
       setTimeout(() => {
         fs.unlink(filePath, (err) => {
           if (err) console.error("Ошибка удаления файла:", err);
-        });
-        // Удаляем папку temp
-        const tempDir = path.dirname(filePath);
-        fs.rmdir(tempDir, { recursive: true }, (err) => {
-          if (err) console.error("Ошибка удаления папки:", err);
         });
       }, 5000);
     }
