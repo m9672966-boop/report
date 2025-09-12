@@ -75,7 +75,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
     // Используем ТОЛЬКО Архив для основного отчёта
-    let dfMerged = { columns: dfArchive.columns,  dfArchive.data };
+    let dfMerged = { columns: dfArchive.columns, data: dfArchive.data };
 
     // Преобразование дат
     dfMerged.data = dfMerged.data.map(row => {
