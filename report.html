@@ -79,18 +79,10 @@
     tr:nth-child(even) {
       background: #f2f2f2;
     }
-    .download-btn {
-      display: inline-block;
-      background: #27ae60;
-      color: white;
-      padding: 10px 20px;
-      text-decoration: none;
-      border-radius: 5px;
-      margin-top: 20px;
+    .success {
+      color: #27ae60;
       font-weight: bold;
-    }
-    .download-btn:hover {
-      background: #229954;
+      margin-top: 20px;
     }
     .error {
       color: #e74c3c;
@@ -158,6 +150,7 @@
     <div id="loading" class="loading" style="display: none;">⏳ Генерируем отчёт...</div>
     
     <div id="error" class="error"></div>
+    <div id="success" class="success"></div>
     
     <div id="results" class="results">
       <h2>📋 Текстовый отчёт</h2>
@@ -165,8 +158,6 @@
       
       <h2>📈 Статистика по дизайнерам</h2>
       <div id="tableContainer"></div>
-      
-      <a id="downloadLink" class="download-btn" download>⬇️ Скачать все файлы (.zip)</a>
     </div>
   </div>
 
@@ -188,6 +179,7 @@
       document.getElementById('loading').style.display = 'block';
       document.getElementById('results').style.display = 'none';
       document.getElementById('error').textContent = '';
+      document.getElementById('success').textContent = '';
       
       const formData = new FormData();
       formData.append('grid', gridFile);
@@ -225,8 +217,8 @@
           
           document.getElementById('tableContainer').innerHTML = tableHtml;
           
-          // Устанавливаем ссылку для скачивания
-          document.getElementById('downloadLink').href = result.downloadUrl;
+          // Показываем сообщение об успехе
+          document.getElementById('success').textContent = '✅ Отчёт сформирован и прикреплён к карточке в Kaiten!';
           
           // Показываем результаты
           document.getElementById('results').style.display = 'block';
