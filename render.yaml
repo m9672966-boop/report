@@ -9,3 +9,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: KAITEN_API_TOKEN
+        sync: false
+      - key: KAITEN_CARD_ID
+        sync: false
