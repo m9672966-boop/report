@@ -1,13 +1,11 @@
 services:
   - type: web
     name: kaiten-report-addon
-    env: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+    env: node
     plan: free
     region: oregon
+    buildCommand: npm install
+    startCommand: npm start
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
-      - key: SECRET_KEY
-        generateValue: true
+      - key: NODE_ENV
+        value: production
