@@ -2,13 +2,34 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Отчеты Kaiten</title>
+  <title>Kaiten Report Generator</title>
+  <script src="https://files.kaiten.ru/web-sdk/v1.min.js"></script>
   <script>
-    // Простой редирект на основное приложение
-    window.location.href = 'https://kaiten-report-generator.onrender.com';
+    setTimeout(function() {
+      if (window.Addon) {
+        try {
+          window.Addon.initialize({
+            card_buttons: function() {
+              return [{
+                text: '📊 Сгенерировать отчёт',
+                callback: function(ctx) {
+                  window.open(window.location.origin + '/report', '_blank');
+                }
+              }];
+            }
+          });
+          console.log('✅ Kaiten addon initialized');
+        } catch (error) {
+          console.error('❌ Addon error:', error);
+        }
+      } else {
+        console.error('❌ Kaiten SDK not found');
+      }
+    }, 1000);
   </script>
+  <style>
+    body { background: transparent; margin: 0; padding: 0; }
+  </style>
 </head>
-<body>
-  Redirecting to report generator...
-</body>
+<body></body>
 </html>
