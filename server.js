@@ -176,27 +176,48 @@ app.post('/api/upload', upload.fields([
     const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1 });
     const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1 });
 
-    // Убираем первую строку, если она пустая
-    const dfGrid = {
-      columns: allGridRows.length > 0 ? allGridRows[0] : [],
-      data: allGridRows.length > 1 ? allGridRows.slice(1).map(row => {
-        const obj = {};
-        dfGrid.columns.forEach((col, i) => {
-          obj[col] = row[i];
+    // Обработка "Грид"
+    let gridColumns = [];
+    let gridData = [];
+
+    if (allGridRows.length > 0) {
+      gridColumns = allGridRows[0];
+      if (allGridRows.length > 1) {
+        gridData = allGridRows.slice(1).map(row => {
+          const obj = {};
+          gridColumns.forEach((col, i) => {
+            obj[col] = row[i];
+          });
+          return obj;
         });
-        return obj;
-      }) : []
+      }
+    }
+
+    const dfGrid = {
+      columns: gridColumns,
+      data: gridData
     };
 
-    const dfArchive = {
-      columns: allArchiveRows.length > 0 ? allArchiveRows[0] : [],
-      data: allArchiveRows.length > 1 ? allArchiveRows.slice(1).map(row => {
-        const obj = {};
-        dfArchive.columns.forEach((col, i) => {
-          obj[col] = row[i];
+    // Обработка "Архив"
+    let archiveColumns = [];
+    let archiveData = [];
+
+    if (allArchiveRows.length > 0) {
+      archiveColumns = allArchiveRows[0];
+      if (allArchiveRows.length > 1) {
+        archiveData = allArchiveRows.slice(1).map(row => {
+          const obj = {};
+          archiveColumns.forEach((col, i) => {
+            obj[col] = row[i];
+          });
+          return obj;
         });
-        return obj;
-      }) : []
+      }
+    }
+
+    const dfArchive = {
+      columns: archiveColumns,
+      data: archiveData
     };
 
     // Генерация отчёта
