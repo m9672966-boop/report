@@ -6,6 +6,8 @@ const fs = require('fs-extra');
 const path = require('path');
 const archiver = require('archiver');
 const moment = require('moment');
+const FormData = require('form-data');
+const fetch = require('node-fetch');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -31,11 +33,49 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// === ФУНКЦИЯ ЗАГРУЗКИ ФАЙЛА В KAITEN ===
+async function uploadFileToKaiten(filePath, fileName, cardId) {
+  try {
+    const stats = fs.statSync(filePath);
+    if (stats.size === 0) {
+      console.error("Файл пустой:", fileName);
+      return false;
+    }
+
+    const form = new FormData();
+    form.append('file', fs.createReadStream(filePath), {
+      filename: fileName,
+      knownLength: stats.size
+    });
+
+    const response = await fetch(`https://panna.kaiten.ru/api/latest/cards/${cardId}/files`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.KAITEN_API_TOKEN}`,
+        'Accept': 'application/json'
+      },
+      body: form
+    });
+
+    if (response.ok) {
+      console.log(`✅ Файл "${fileName}" успешно загружен в карточку ${cardId}`);
+      return true;
+    } else {
+      const errorText = await response.text();
+      console.error(`❌ Ошибка загрузки "${fileName}": ${response.status} - ${errorText}`);
+      return false;
+    }
+  } catch (error) {
+    console.error(`❌ Ошибка при загрузке "${fileName}":`, error.message);
+    return false;
+  }
+}
+
 // === ФУНКЦИЯ ГЕНЕРАЦИИ ОТЧЁТА ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
-    // Используем ТОЛЬКО Архив для основного отчёта (в нём есть все нужные данные)
-    let dfMerged = { columns: dfArchive.columns, data: dfArchive.data };
+    // Используем ТОЛЬКО Архив для основного отчёта
+    let dfMerged = { columns: dfArchive.columns,  dfArchive.data };
 
     // Преобразование дат
     dfMerged.data = dfMerged.data.map(row => {
@@ -195,7 +235,7 @@ app.post('/api/upload', upload.fields([
 
     const dfGrid = {
       columns: gridColumns,
-      data: gridData
+       gridData
     };
 
     // Обработка "Архив"
@@ -217,7 +257,7 @@ app.post('/api/upload', upload.fields([
 
     const dfArchive = {
       columns: archiveColumns,
-      data: archiveData
+       archiveData
     };
 
     // Генерация отчёта
@@ -228,7 +268,7 @@ app.post('/api/upload', upload.fields([
       parseInt(year)
     );
 
-    // Создаём временные файлы для скачивания
+    // Создаём временные файлы
     const tempDir = path.join(UPLOAD_DIR, `temp_${Date.now()}`);
     await fs.mkdir(tempDir);
 
@@ -243,23 +283,31 @@ app.post('/api/upload', upload.fields([
     const txtPath = path.join(tempDir, `Статистика_${month}_${year}.txt`);
     await fs.writeFile(txtPath, textReport, 'utf8');
 
-    // Архив для скачивания
-    const zipPath = path.join(tempDir, `report_${month}_${year}.zip`);
-    const output = fs.createWriteStream(zipPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    // ID карточки из переменных окружения
+    const cardId = process.env.KAITEN_CARD_ID;
 
-    archive.pipe(output);
-    archive.file(excelPath, { name: `Отчет_${month}_${year}.xlsx` });
-    archive.file(txtPath, { name: `Статистика_${month}_${year}.txt` });
-    await archive.finalize();
+    let uploadSuccess = true;
 
-    // Удаляем загруженные файлы
+    if (cardId) {
+      // Загружаем файлы в Kaiten
+      const excelUploaded = await uploadFileToKaiten(excelPath, `Отчет_${month}_${year}.xlsx`, cardId);
+      const txtUploaded = await uploadFileToKaiten(txtPath, `Статистика_${month}_${year}.txt`, cardId);
+      
+      if (!excelUploaded || !txtUploaded) {
+        uploadSuccess = false;
+      }
+    } else {
+      console.warn("KAITEN_CARD_ID не задан — файлы не будут загружены в Kaiten");
+      uploadSuccess = false;
+    }
+
+    // Удаляем временные файлы
     await fs.unlink(gridPath);
     await fs.unlink(archivePath);
+    await fs.remove(tempDir);
 
     res.json({
       success: true,
-      downloadUrl: `/download?file=${encodeURIComponent(path.basename(zipPath))}`,
       textReport: textReport,
       report: report
     });
@@ -268,27 +316,6 @@ app.post('/api/upload', upload.fields([
     console.error("Ошибка:", error);
     res.status(500).json({ error: error.message });
   }
-});
-
-app.get('/download', async (req, res) => {
-  const fileName = req.query.file;
-  const filePath = path.join(UPLOAD_DIR, fileName);
-
-  if (!fileName || !fs.existsSync(filePath)) {
-    return res.status(404).send('Файл не найден');
-  }
-
-  res.download(filePath, (err) => {
-    if (err) {
-      console.error("Ошибка скачивания:", err);
-    } else {
-      setTimeout(() => {
-        fs.unlink(filePath, (err) => {
-          if (err) console.error("Ошибка удаления файла:", err);
-        });
-      }, 5000);
-    }
-  });
 });
 
 app.listen(PORT, () => {
