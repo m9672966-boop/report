@@ -71,7 +71,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === ГЕНЕРАЦИЯ ОТЧЕТА ===
+// === ГЕНЕРАЦИЯ ОТЧЕТА (ПОЛНАЯ ЛОГИКА КАК В БОТЕ + ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ) ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
     console.log("=== 🚨 НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА (ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ) ===");
@@ -80,6 +80,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     // === 1. Объединение данных ===
     console.log("\n=== 1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА ===");
 
+    // Находим общие колонки
     const commonColumns = dfArchive.columns.filter(col => dfGrid.columns.includes(col));
     console.log("Общие колонки для объединения:", commonColumns);
 
@@ -87,6 +88,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       throw new Error("Нет общих колонок для объединения!");
     }
 
+    // Создаем новый массив данных из Грида с общими колонками
     const gridCommonData = (dfGrid.data || []).map(row => {
       const newRow = {};
       commonColumns.forEach(col => {
@@ -95,14 +97,17 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       return newRow;
     });
 
+    // Объединяем данные
     const mergedData = [...(dfArchive.data || []), ...gridCommonData];
     console.log(`Объединено данных: Грид=${gridCommonData.length} строк + Архив=${(dfArchive.data || []).length} строк = Итого=${mergedData.length} строк`);
 
+    // Создаем объединённый DataFrame
     let dfMerged = {
       columns: dfArchive.columns,
        mergedData || []
     };
 
+    // Заменяем пустые значения в Ответственном на "Неизвестно"
     dfMerged.data = (dfMerged.data || []).map(row => {
       row['Ответственный'] = row['Ответственный'] || 'Неизвестно';
       return row;
@@ -121,9 +126,9 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
         console.log(`Исходная дата выполнения:`, row['Выполнена']);
       }
 
-      // Парсим даты
-      const createdDate = moment(row['Дата создания'], ['D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
-      const completedDate = moment(row['Выполнена'], ['D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
+      // Парсим даты с поддержкой формата M/D/YY (например, 4/16/25)
+      const createdDate = moment(row['Дата создания'], ['M/D/YY', 'D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
+      const completedDate = moment(row['Выполнена'], ['M/D/YY', 'D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
 
       if (sampleLogged < MAX_SAMPLE_LOGS) {
         console.log(`После парсинга дата создания:`, createdDate.isValid() ? createdDate.format() : 'INVALID');
@@ -158,7 +163,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     // Логируем первые 5 задач с датами
     console.log("\n--- ПЕРВЫЕ 5 ЗАДАЧ С ДАТАМИ ---");
     let dateSampleLogged = 0;
-    dfMerged.data.slice(0, 5).forEach(row => {
+    (dfMerged.data || []).slice(0, 5).forEach(row => {
       console.log(`\nЗадача ${dateSampleLogged + 1}:`);
       console.log(`Ответственный:`, row['Ответственный']);
       console.log(`Дата создания:`, row['Дата создания'] ? moment(row['Дата создания']).format('YYYY-MM-DD') : 'null');
@@ -308,6 +313,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     throw error;
   }
 }
+
 // === МАРШРУТЫ ===
 
 app.get('/', (req, res) => {
@@ -381,7 +387,7 @@ app.post('/api/upload', upload.fields([
 
     const dfGrid = {
       columns: gridColumns,
-      data: gridData || []
+       gridData || []
     };
 
     // Обработка "Архив"
@@ -392,7 +398,7 @@ app.post('/api/upload', upload.fields([
       // Находим первую строку, которая выглядит как заголовок
       let headerRowIndex = 0;
       for (let i = 0; i < allArchiveRows.length; i++) {
-        const row = allArchiveRows[i];
+        const row = allGridRows[i]; // ❌ ОШИБКА: должно быть allArchiveRows[i]
         if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
           if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
             headerRowIndex = i;
@@ -417,7 +423,7 @@ app.post('/api/upload', upload.fields([
 
     const dfArchive = {
       columns: archiveColumns,
-      data: archiveData || []
+       archiveData || []
     };
 
     // Логирование для отладки
