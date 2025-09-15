@@ -16,7 +16,8 @@
     "archiver": "^5.3.2",
     "moment": "^2.29.4",
     "form-data": "^4.0.0",
-    "node-fetch": "^2.6.7"
+    "node-fetch": "^2.6.7",
+    "dotenv": "^16.4.5"  // <-- ДОБАВЛЕНО
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
