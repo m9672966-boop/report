@@ -175,7 +175,6 @@
         return;
       }
       
-      // Показываем загрузку
       document.getElementById('loading').style.display = 'block';
       document.getElementById('results').style.display = 'none';
       document.getElementById('error').textContent = '';
@@ -199,28 +198,40 @@
           // Показываем текстовый отчёт
           document.getElementById('textReport').textContent = result.textReport;
           
-          // Показываем таблицу
+          // Показываем таблицу — с защитой от пустого отчёта
           let tableHtml = '<table><thead><tr>';
-          Object.keys(result.report[0]).forEach(col => {
-            tableHtml += `<th>${col}</th>`;
-          });
+          
+          if (result.report && result.report.length > 0) {
+            // Берем заголовки из первой строки
+            Object.keys(result.report[0]).forEach(col => {
+              tableHtml += `<th>${col}</th>`;
+            });
+          } else {
+            // Если отчёт пуст — показываем стандартные заголовки
+            const defaultHeaders = ['Ответственный', 'Задачи', 'Макеты', 'Варианты', 'Оценка'];
+            defaultHeaders.forEach(col => {
+              tableHtml += `<th>${col}</th>`;
+            });
+          }
+          
           tableHtml += '</tr></thead><tbody>';
           
-          result.report.forEach(row => {
-            tableHtml += '<tr>';
-            Object.values(row).forEach(cell => {
-              tableHtml += `<td>${cell}</td>`;
+          if (result.report && result.report.length > 0) {
+            result.report.forEach(row => {
+              tableHtml += '<tr>';
+              Object.values(row).forEach(cell => {
+                tableHtml += `<td>${cell}</td>`;
+              });
+              tableHtml += '</tr>';
             });
-            tableHtml += '</tr>';
-          });
+          } else {
+            tableHtml += '<tr><td colspan="5">Нет данных за выбранный период</td></tr>';
+          }
+          
           tableHtml += '</tbody></table>';
           
           document.getElementById('tableContainer').innerHTML = tableHtml;
-          
-          // Показываем сообщение об успехе
           document.getElementById('success').textContent = '✅ Отчёт сформирован и прикреплён к карточке в Kaiten!';
-          
-          // Показываем результаты
           document.getElementById('results').style.display = 'block';
         } else {
           document.getElementById('error').textContent = result.error || 'Ошибка генерации отчёта';
