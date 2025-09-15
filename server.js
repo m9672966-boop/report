@@ -71,7 +71,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === ГЕНЕРАЦИЯ ОТЧЁТА (ПОЛНАЯ ЛОГИКА КАК В БОТЕ) ===
+// === ГЕНЕРАЦИЯ ОТЧЕТА (ПОЛНАЯ ЛОГИКА КАК В БОТЕ) ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
     console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
@@ -104,7 +104,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     // Создаем объединённый DataFrame
     let dfMerged = {
       columns: dfArchive.columns,
-      data: mergedData
+       mergedData
     };
 
     // Заменяем пустые значения в Ответственном на "Неизвестно"
@@ -116,8 +116,9 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     // === 2. Преобразование дат ===
     console.log("\n2. ПРЕОБРАЗОВАНИЕ ДАТ:");
     dfMerged.data = dfMerged.data.map(row => {
-      const createdDate = moment(row['Дата создания']);
-      const completedDate = moment(row['Выполнена']);
+      // Явно указываем форматы для парсинга
+      const createdDate = moment(row['Дата создания'], ['D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
+      const completedDate = moment(row['Выполнена'], ['D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
       row['Дата создания'] = createdDate.isValid() ? createdDate.toDate() : null;
       row['Выполнена'] = completedDate.isValid() ? completedDate.toDate() : null;
       return row;
@@ -249,7 +250,19 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       console.warn("Нет выполненных задач дизайнеров для отчетного периода");
     }
 
-    // === 6. Формирование текстового отчета (без карточек МП) ===
+    // Добавляем итоговую строку
+    if (report.length > 0) {
+      const totalRow = {
+        Ответственный: 'ИТОГО',
+        Задачи: report.reduce((sum, r) => sum + r.Задачи, 0),
+        Макеты: report.reduce((sum, r) => sum + r.Макеты, 0),
+        Варианты: report.reduce((sum, r) => sum + r.Варианты, 0),
+        Оценка: report.length > 0 ? (report.reduce((sum, r) => sum + parseFloat(r.Оценка), 0) / report.length).toFixed(2) : 0
+      };
+      report.push(totalRow);
+    }
+
+    // === 6. Формирование текстового отчета ===
     const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
 
 Дизайнеры:
@@ -329,7 +342,7 @@ app.post('/api/upload', upload.fields([
 
     const dfGrid = {
       columns: gridColumns,
-      data: gridData
+       gridData
     };
 
     // Обработка "Архив"
@@ -351,7 +364,7 @@ app.post('/api/upload', upload.fields([
 
     const dfArchive = {
       columns: archiveColumns,
-      data: archiveData
+       archiveData
     };
 
     // Логирование для отладки
@@ -398,6 +411,7 @@ app.post('/api/upload', upload.fields([
     await fs.unlink(archivePath);
     await fs.remove(tempDir);
 
+    // Отправляем ответ
     res.json({
       success: true,
       textReport: textReport,
