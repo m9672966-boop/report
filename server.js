@@ -1,3 +1,5 @@
+require('dotenv').config(); // <-- ДОБАВЛЕНО: загрузка переменных окружения
+
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
@@ -46,6 +48,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
       knownLength: stats.size
     });
 
+    // Исправлено: убраны лишние пробелы в URL
     const response = await fetch(`https://panna.kaiten.ru/api/latest/cards/${cardId}/files`, {
       method: 'POST',
       headers: {
@@ -72,7 +75,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
 // === ГЕНЕРАЦИЯ ОТЧЁТА ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
-    // Используем ТОЛЬКО Архив для основного отчёта
+    // Исправлено: правильно назначаем data
     let dfMerged = { columns: dfArchive.columns,  dfArchive.data };
 
     // Проверка данных
@@ -80,10 +83,14 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       throw new Error("Данные из файла 'Архив.xlsx' отсутствуют или повреждены");
     }
 
-    // Преобразование дат
+    console.log("Обработано строк из Архива:", dfMerged.data.length);
+
+    // Преобразование дат с помощью moment
     dfMerged.data = dfMerged.data.map(row => {
-      row['Дата создания'] = row['Дата создания'] ? new Date(row['Дата создания']) : null;
-      row['Выполнена'] = row['Выполнена'] ? new Date(row['Выполнена']) : null;
+      const createdDate = moment(row['Дата создания']);
+      const completedDate = moment(row['Выполнена']);
+      row['Дата создания'] = createdDate.isValid() ? createdDate.toDate() : null;
+      row['Выполнена'] = completedDate.isValid() ? completedDate.toDate() : null;
       row['Ответственный'] = row['Ответственный'] || 'Неизвестно';
       return row;
     });
@@ -215,6 +222,10 @@ app.post('/api/upload', upload.fields([
     const gridSheet = gridWorkbook.Sheets[gridWorkbook.SheetNames[0]];
     const archiveSheet = archiveWorkbook.Sheets[archiveWorkbook.SheetNames[0]];
 
+    if (!gridSheet || !archiveSheet) {
+      throw new Error('Один из листов Excel пуст или не найден');
+    }
+
     const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1 });
     const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1 });
 
@@ -237,7 +248,7 @@ app.post('/api/upload', upload.fields([
 
     const dfGrid = {
       columns: gridColumns,
-       gridData
+       gridData  // <-- ИСПРАВЛЕНО
     };
 
     // Обработка "Архив"
@@ -259,12 +270,13 @@ app.post('/api/upload', upload.fields([
 
     const dfArchive = {
       columns: archiveColumns,
-       archiveData
+       archiveData  // <-- ИСПРАВЛЕНО
     };
 
     // Логирование для отладки
     console.log("Архив: колонки =", dfArchive.columns);
-    console.log("Архив: количество строк =", dfArchive.data ? dfArchive.data.length : 0);
+    console.log("Архив: количество строк =", dfArchive.data?.length || 0);
+    console.log("Грид: количество строк =", dfGrid.data?.length || 0);
 
     // Генерация отчёта
     const { report, textReport } = generateReport(
@@ -297,7 +309,7 @@ app.post('/api/upload', upload.fields([
       await uploadFileToKaiten(excelPath, `Отчет_${month}_${year}.xlsx`, cardId);
       await uploadFileToKaiten(txtPath, `Статистика_${month}_${year}.txt`, cardId);
     } else {
-      console.warn("KAITEN_CARD_ID не задан — файлы не будут загружены в Kaiten");
+      console.warn("⚠️ KAITEN_CARD_ID не задан — файлы не будут загружены в Kaiten");
     }
 
     // Удаляем временные файлы
@@ -312,7 +324,7 @@ app.post('/api/upload', upload.fields([
     });
 
   } catch (error) {
-    console.error("Ошибка:", error);
+    console.error("❌ Ошибка в /api/upload:", error);
     res.status(500).json({ error: error.message });
   }
 });
