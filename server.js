@@ -430,7 +430,7 @@ app.post('/api/upload', upload.fields([
 
     const dfGrid = {
       columns: gridColumns,
-       gridData || []
+      data: gridData || []
     };
 
     // Обработка "Архив"
@@ -466,7 +466,7 @@ app.post('/api/upload', upload.fields([
 
     const dfArchive = {
       columns: archiveColumns,
-       archiveData || []
+       data: archiveData || []
     };
 
     // Логирование для отладки
