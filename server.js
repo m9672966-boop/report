@@ -131,7 +131,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
         }
       }
 
-      // Преобразование даты выполнения
+      // Преобразование дата выполнения
       if (row['Выполнена']) {
         for (const format of dateFormats) {
           completedDate = moment(row['Выполнена'], format, true);
@@ -351,7 +351,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     return { report, textReport };
 
   } catch (error) {
-    console.error("ОШИБКА ПРИ ФОРМИРОВАНИИ ОТЧЕТА:", error.message);
+    console.error("ОШИБКА ПРИ ФОРМИРОВАНИИ ОТЧЕТA:", error.message);
     console.error("Stack trace:", error.stack);
     throw error;
   }
