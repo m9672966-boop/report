@@ -81,10 +81,10 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     // === 1. Объединение данных ===
     console.log("\n1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА");
 
-    // Используем только данные из Архива для отчета (как в оригинальной логике)
+    // Используем только данные из Архива для отчета
     let dfMerged = {
       columns: dfArchive.columns,
-      data: [...(dfArchive.data || [])] // Только архивные данные
+      data: [...(dfArchive.data || [])]
     };
 
     console.log("Используем только данные из Архива для отчета");
@@ -93,6 +93,25 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     // === 2. Преобразование дат ===
     console.log("\n2. ПРЕОБРАЗОВАНИЕ ДАТ:");
     
+    // Функция для преобразования Excel серийной даты в JavaScript Date
+    function excelDateToJSDate(serial) {
+      if (serial === null || serial === undefined) return null;
+      
+      // Excel использует 1 января 1900 как точку отсчета (но с ошибкой на 1 день)
+      const excelEpoch = new Date(1900, 0, 1);
+      const excelEpochWithError = new Date(1899, 11, 30); // Коррекция для Excel bug
+      
+      // Проверяем, является ли значение числом (Excel serial date)
+      if (typeof serial === 'number') {
+        // Для дат после 28 февраля 1900 (Excel bug correction)
+        const utcDays = Math.floor(serial - 1);
+        const milliseconds = utcDays * 24 * 60 * 60 * 1000;
+        return new Date(excelEpochWithError.getTime() + milliseconds);
+      }
+      
+      return null;
+    }
+
     // Логируем первые 5 строк для отладки
     console.log("Первые 5 строк до преобразования дат:");
     for (let i = 0; i < Math.min(5, dfMerged.data.length); i++) {
@@ -101,56 +120,35 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       console.log(`  Дата создания: ${row['Дата создания']} (тип: ${typeof row['Дата создания']})`);
       console.log(`  Выполнена: ${row['Выполнена']} (тип: ${typeof row['Выполнена']})`);
       console.log(`  Ответственный: ${row['Ответственный']}`);
+      
+      // Пробуем преобразовать
+      const testCreated = excelDateToJSDate(row['Дата создания']);
+      const testCompleted = excelDateToJSDate(row['Выполнена']);
+      console.log(`  Тест преобразования создания: ${testCreated}`);
+      console.log(`  Тест преобразования выполнения: ${testCompleted}`);
     }
 
     dfMerged.data = (dfMerged.data || []).map((row, index) => {
+      // Преобразуем даты из Excel формата
+      row['Дата создания'] = excelDateToJSDate(row['Дата создания']);
+      row['Выполнена'] = excelDateToJSDate(row['Выполнена']);
+      
+      // Заменяем пустые значения в Ответственном
+      row['Ответственный'] = row['Ответственный'] || 'Неизвестно';
+
       // Логируем преобразование для первых 10 строк
       if (index < 10) {
         console.log(`\nПреобразование строки ${index+1}:`);
         console.log(`  Исходная дата создания: ${row['Дата создания']}`);
         console.log(`  Исходная дата выполнения: ${row['Выполнена']}`);
-      }
-
-      let createdDate = null;
-      let completedDate = null;
-
-      // Пробуем разные форматы дат
-      const dateFormats = [
-        'DD.MM.YYYY', 'D.M.YYYY', 'DD/MM/YYYY', 'D/M/YYYY',
-        'YYYY-MM-DD', 'YYYY-M-D', 'MM/DD/YYYY', 'M/D/YYYY'
-      ];
-
-      // Преобразование даты создания
-      if (row['Дата создания']) {
-        for (const format of dateFormats) {
-          createdDate = moment(row['Дата создания'], format, true);
-          if (createdDate.isValid()) {
-            if (index < 10) console.log(`  Дата создания найдена в формате ${format}: ${createdDate.format('YYYY-MM-DD')}`);
-            break;
-          }
-        }
-      }
-
-      // Преобразование дата выполнения
-      if (row['Выполнена']) {
-        for (const format of dateFormats) {
-          completedDate = moment(row['Выполнена'], format, true);
-          if (completedDate.isValid()) {
-            if (index < 10) console.log(`  Дата выполнения найдена в формате ${format}: ${completedDate.format('YYYY-MM-DD')}`);
-            break;
-          }
-        }
-      }
-
-      row['Дата создания'] = createdDate && createdDate.isValid() ? createdDate.toDate() : null;
-      row['Выполнена'] = completedDate && completedDate.isValid() ? completedDate.toDate() : null;
-      
-      // Заменяем пустые значения в Ответственном
-      row['Ответственный'] = row['Ответственный'] || 'Неизвестно';
-
-      if (index < 10) {
         console.log(`  Преобразованная дата создания: ${row['Дата создания']}`);
         console.log(`  Преобразованная дата выполнения: ${row['Выполнена']}`);
+        if (row['Дата создания']) {
+          console.log(`  Дата создания формат: ${moment(row['Дата создания']).format('YYYY-MM-DD')}`);
+        }
+        if (row['Выполнена']) {
+          console.log(`  Дата выполнения формат: ${moment(row['Выполнена']).format('YYYY-MM-DD')}`);
+        }
       }
 
       return row;
@@ -177,55 +175,59 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log("\nПоиск задач за период:", monthPeriod);
 
     const createdDesign = (dfMerged.data || []).filter((row, index) => {
+      const created = row['Дата создания'];
       const isMatch = isDesigner(row) &&
-        row['Дата создания'] &&
-        moment(row['Дата создания']).format('YYYY-MM') === monthPeriod;
+        created &&
+        moment(created).format('YYYY-MM') === monthPeriod;
 
       if (isMatch && index < 10) {
         console.log(`  Найдена созданная задача дизайнера ${index+1}:`);
         console.log(`    Ответственный: ${row['Ответственный']}`);
-        console.log(`    Дата создания: ${row['Дата создания']}`);
+        console.log(`    Дата создания: ${created} (${moment(created).format('YYYY-MM-DD')})`);
         console.log(`    Название: ${row['Название']}`);
       }
       return isMatch;
     });
 
     const completedDesign = (dfMerged.data || []).filter((row, index) => {
+      const completed = row['Выполнена'];
       const isMatch = isDesigner(row) &&
-        row['Выполнена'] &&
-        moment(row['Выполнена']).format('YYYY-MM') === monthPeriod;
+        completed &&
+        moment(completed).format('YYYY-MM') === monthPeriod;
 
       if (isMatch && index < 10) {
         console.log(`  Найдена выполненная задача дизайнера ${index+1}:`);
         console.log(`    Ответственный: ${row['Ответственный']}`);
-        console.log(`    Дата выполнения: ${row['Выполнена']}`);
+        console.log(`    Дата выполнения: ${completed} (${moment(completed).format('YYYY-MM-DD')})`);
         console.log(`    Название: ${row['Название']}`);
       }
       return isMatch;
     });
 
     const createdText = (dfMerged.data || []).filter((row, index) => {
+      const created = row['Дата создания'];
       const isMatch = isTextAuthor(row) &&
-        row['Дата создания'] &&
-        moment(row['Дата создания']).format('YYYY-MM') === monthPeriod;
+        created &&
+        moment(created).format('YYYY-MM') === monthPeriod;
 
       if (isMatch && index < 10) {
         console.log(`  Найдена созданная текстовая задача ${index+1}:`);
         console.log(`    Ответственный: ${row['Ответственный']}`);
-        console.log(`    Дата создания: ${row['Дата создания']}`);
+        console.log(`    Дата создания: ${created} (${moment(created).format('YYYY-MM-DD')})`);
       }
       return isMatch;
     });
 
     const completedText = (dfMerged.data || []).filter((row, index) => {
+      const completed = row['Выполнена'];
       const isMatch = isTextAuthor(row) &&
-        row['Выполнена'] &&
-        moment(row['Выполнена']).format('YYYY-MM') === monthPeriod;
+        completed &&
+        moment(completed).format('YYYY-MM') === monthPeriod;
 
       if (isMatch && index < 10) {
         console.log(`  Найдена выполненная текстовая задача ${index+1}:`);
         console.log(`    Ответственный: ${row['Ответственный']}`);
-        console.log(`    Дата выполнения: ${row['Выполнена']}`);
+        console.log(`    Дата выполнения: ${completed} (${moment(completed).format('YYYY-MM-DD')})`);
       }
       return isMatch;
     });
@@ -236,7 +238,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log(`- Выполнено в отчетном периоде: ${completedDesign.length}`);
 
     console.log("\nТЕКСТОВЫЕ ЗАДАЧИ:");
-    console.log(`- Всего задач в объединенном файле: ${(dfMerged.data || []).filter(isTextAuthor).length}`);
+    console.log(`- Всего задач в объединенном файе: ${(dfMerged.data || []).filter(isTextAuthor).length}`);
     console.log(`- Создано: ${createdText.length}`);
     console.log(`- Выполнено: ${completedText.length}`);
 
@@ -313,10 +315,12 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       console.log("Первые 10 строк данных для анализа:");
       for (let i = 0; i < Math.min(10, dfMerged.data.length); i++) {
         const row = dfMerged.data[i];
+        const created = row['Дата создания'];
+        const completed = row['Выполнена'];
         console.log(`Строка ${i+1}:`);
         console.log(`  Ответственный: ${row['Ответственный']}`);
-        console.log(`  Дата создания: ${row['Дата создания']}`);
-        console.log(`  Дата выполнения: ${row['Выполнена']}`);
+        console.log(`  Дата создания: ${created} (${created ? moment(created).format('YYYY-MM-DD') : 'null'})`);
+        console.log(`  Дата выполнения: ${completed} (${completed ? moment(completed).format('YYYY-MM-DD') : 'null'})`);
         console.log(`  Название: ${row['Название']}`);
       }
     }
@@ -351,7 +355,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     return { report, textReport };
 
   } catch (error) {
-    console.error("ОШИБКА ПРИ ФОРМИРОВАНИИ ОТЧЕТA:", error.message);
+    console.error("ОШИБКА ПРИ ФОРМИРОВАНИИ ОТЧЕТА:", error.message);
     console.error("Stack trace:", error.stack);
     throw error;
   }
