@@ -104,7 +104,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     // Создаем объединённый DataFrame
     let dfMerged = {
       columns: dfArchive.columns,
-       mergedData || []
+      data: mergedData || []
     };
 
     // Заменяем пустые значения в Ответственном на "Неизвестно"
@@ -249,7 +249,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       console.warn("Нет выполненных задач дизайнеров для отчетного периода");
     }
 
-    // Добавляем итоговую строку
+    // Добавляем итоговую строки
     if (report.length > 0) {
       const totalRow = {
         Ответственный: 'ИТОГО',
@@ -357,7 +357,7 @@ app.post('/api/upload', upload.fields([
 
     const dfGrid = {
       columns: gridColumns,
-       gridData || []
+      data: gridData || []
     };
 
     // Обработка "Архив"
@@ -393,7 +393,7 @@ app.post('/api/upload', upload.fields([
 
     const dfArchive = {
       columns: archiveColumns,
-       archiveData || []
+      data: archiveData || []
     };
 
     // Логирование для отладки
