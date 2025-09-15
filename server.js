@@ -1,4 +1,4 @@
-require('dotenv').config(); // <-- ДОБАВЛЕНО: загрузка переменных окружения
+require('dotenv').config();
 
 const express = require('express');
 const cors = require('cors');
@@ -48,7 +48,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
       knownLength: stats.size
     });
 
-    // Исправлено: убраны лишние пробелы в URL
+    // Исправлено: убраны пробелы в URL
     const response = await fetch(`https://panna.kaiten.ru/api/latest/cards/${cardId}/files`, {
       method: 'POST',
       headers: {
@@ -248,7 +248,7 @@ app.post('/api/upload', upload.fields([
 
     const dfGrid = {
       columns: gridColumns,
-       gridData  // <-- ИСПРАВЛЕНО
+       gridData  // Исправлено: явно указан ключ
     };
 
     // Обработка "Архив"
@@ -270,7 +270,7 @@ app.post('/api/upload', upload.fields([
 
     const dfArchive = {
       columns: archiveColumns,
-       archiveData  // <-- ИСПРАВЛЕНО
+       archiveData  // Исправлено: явно указан ключ
     };
 
     // Логирование для отладки
