@@ -76,7 +76,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
     // Исправлено: правильно назначаем data
-    let dfMerged = { columns: dfArchive.columns,  dfArchive.data };
+    let dfMerged = { columns: dfArchive.columns, data: dfArchive.data };
 
     // Проверка данных
     if (!dfMerged.data || !Array.isArray(dfMerged.data)) {
@@ -248,7 +248,7 @@ app.post('/api/upload', upload.fields([
 
     const dfGrid = {
       columns: gridColumns,
-       gridData  // Исправлено: явно указан ключ
+      data: gridData  // Исправлено: явно указан ключ
     };
 
     // Обработка "Архив"
@@ -270,7 +270,7 @@ app.post('/api/upload', upload.fields([
 
     const dfArchive = {
       columns: archiveColumns,
-       archiveData  // Исправлено: явно указан ключ
+      data: archiveData  // Исправлено: явно указан ключ
     };
 
     // Логирование для отладки
