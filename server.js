@@ -71,179 +71,215 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === ГЕНЕРАЦИЯ ОТЧЁТА ===
+// === ГЕНЕРАЦИЯ ОТЧЕТА ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
     console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
-    console.log("Параметры: месяц=" + monthName + ", год=" + year);
-    
-    // Используем данные из Архива для отчета
-    let dfMerged = { columns: dfArchive.columns, data: dfArchive.data };
+    console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
-    // Проверка данных
-    if (!dfMerged.data || !Array.isArray(dfMerged.data)) {
-      throw new Error("Данные из файла 'Архив.xlsx' отсутствуют или повреждены");
+    // === 1. Объединение данных ===
+    console.log("\n1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА");
+
+    // Находим общие колонки
+    const commonColumns = dfArchive.columns.filter(col => dfGrid.columns.includes(col));
+    console.log("Общие колонки для объединения:", commonColumns);
+
+    if (commonColumns.length === 0) {
+      throw new Error("Нет общих колонок для объединения!");
     }
 
-    console.log("Обработано строк из Архива:", dfMerged.data.length);
-    console.log("Колонки Архива:", dfMerged.columns);
+    // Создаем новый массив данных из Грида с общими колонками
+    const gridCommonData = (dfGrid.data || []).map(row => {
+      const newRow = {};
+      commonColumns.forEach(col => {
+        newRow[col] = row[col] || null;
+      });
+      return newRow;
+    });
 
-    // Преобразование дат с помощью moment
-    dfMerged.data = dfMerged.data.map(row => {
-      // Ищем колонку с датой создания
-      const createdDateCol = 'Дата создания';
-      
-      // Ищем колонку с датой выполнения
-      const completedDateCol = 'Выполнена';
-      
-      // Ищем колонку с ответственным
-      const responsibleCol = 'Ответственный';
+    // Объединяем данные
+    const mergedData = [...(dfArchive.data || []), ...gridCommonData];
+    console.log(`Объединено данных: Грид=${gridCommonData.length} строк + Архив=${(dfArchive.data || []).length} строк = Итого=${mergedData.length} строк`);
 
-      if (createdDateCol && row[createdDateCol]) {
-        const createdDate = moment(row[createdDateCol], 'DD.MM.YYYY');
-        row['Дата создания'] = createdDate.isValid() ? createdDate.toDate() : null;
-      } else {
-        row['Дата создания'] = null;
-      }
+    // Создаем объединённый DataFrame
+    let dfMerged = {
+      columns: dfArchive.columns,
+       mergedData || []
+    };
 
-      if (completedDateCol && row[completedDateCol]) {
-        const completedDate = moment(row[completedDateCol], 'DD.MM.YYYY');
-        row['Выполнена'] = completedDate.isValid() ? completedDate.toDate() : null;
-      } else {
-        row['Выполнена'] = null;
-      }
-
-      if (responsibleCol) {
-        row['Ответственный'] = row[responsibleCol] || 'Неизвестно';
-      } else {
-        row['Ответственный'] = 'Неизвестно';
-      }
-
+    // Заменяем пустые значения в Ответственном на "Неизвестно"
+    dfMerged.data = (dfMerged.data || []).map(row => {
+      row['Ответственный'] = row['Ответственный'] || 'Неизвестно';
       return row;
     });
 
-    // Определение месяца
+    // === 2. Преобразование дат ===
+    console.log("\n2. ПРЕОБРАЗОВАНИЕ ДАТ:");
+    dfMerged.data = (dfMerged.data || []).map(row => {
+      const createdDate = moment(row['Дата создания'], ['D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
+      const completedDate = moment(row['Выполнена'], ['D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
+      row['Дата создания'] = createdDate.isValid() ? createdDate.toDate() : null;
+      row['Выполнена'] = completedDate.isValid() ? completedDate.toDate() : null;
+      return row;
+    });
+    console.log(`Преобразовано дат: ${dfMerged.data.length} строк`);
+
+    // === 3. Определение месяца ===
+    console.log("\n3. ОПРЕДЕЛЕНИЕ МЕСЯЦА ОТЧЕТА:");
     const monthObj = moment(monthName, 'MMMM', true);
     if (!monthObj.isValid()) {
       throw new Error("Неверный месяц");
     }
     const monthNum = monthObj.month() + 1;
     const monthPeriod = `${year}-${monthNum.toString().padStart(2, '0')}`;
+    console.log(`Период для фильтрации: ${monthPeriod}`);
 
-    // Подсчет статистики
+    // === 4. Подсчет статистики ===
+    console.log("\n4. ПОДСЧЕТ СТАТИСТИКИ:");
     const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
+
     const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
-    const isDesigner = (row) => !isTextAuthor(row) || row['Ответственный'] === 'Неизвестно';
+    const isDesigner = (row) => !isTextAuthor(row);
 
-    // Для статистики "поступило" — используем Грид
-    const createdDesign = dfGrid.data.filter(row => {
-      const responsibleCol = 'Ответственный';
-      const createdDateCol = 'Дата создания';
-      
-      const responsible = responsibleCol ? row[responsibleCol] || 'Неизвестно' : 'Неизвестно';
-      const createdDate = createdDateCol && row[createdDateCol] ? moment(row[createdDateCol], 'DD.MM.YYYY') : null;
-      
-      return isDesigner({ Ответственный: responsible }) &&
-             createdDate && 
-             createdDate.isValid() &&
-             createdDate.format('YYYY-MM') === monthPeriod;
-    });
+    // Фильтруем задачи по периоду
+    const createdDesign = (dfMerged.data || []).filter(row =>
+      isDesigner(row) &&
+      row['Дата создания'] &&
+      moment(row['Дата создания']).format('YYYY-MM') === monthPeriod
+    );
 
-    const completedDesign = dfMerged.data.filter(row => 
-      isDesigner(row) && 
-      row['Выполнена'] && 
+    const completedDesign = (dfMerged.data || []).filter(row =>
+      isDesigner(row) &&
+      row['Выполнена'] &&
       moment(row['Выполнена']).format('YYYY-MM') === monthPeriod
     );
 
-    // Формирование отчета по дизайнерам
-    const reportMap = {};
-    completedDesign.forEach(row => {
-      const resp = row['Ответственный'];
-      if (!reportMap[resp]) {
-        reportMap[resp] = { 
-          Задачи: 0, 
-          Макеты: 0, 
-          Варианты: 0, 
-          Оценка: 0, 
-          count: 0 
-        };
-      }
-      reportMap[resp].Задачи += 1;
-      
-      // Ищем колонки с количеством макетов и вариантов
-      const maketsCol = 'Количество макетов';
-      const variantsCol = 'Количество предложенных вариантов';
-      const scoreCol = 'Оценка работы';
-      
-      if (maketsCol && row[maketsCol]) {
-        reportMap[resp].Макеты += parseFloat(row[maketsCol]) || 0;
-      }
-      
-      if (variantsCol && row[variantsCol]) {
-        reportMap[resp].Варианты += parseFloat(row[variantsCol]) || 0;
-      }
-      
-      if (scoreCol && row[scoreCol]) {
-        const score = parseFloat(row[scoreCol]);
-        if (!isNaN(score)) {
-          reportMap[resp].Оценка += score;
-          reportMap[resp].count += 1;
-        }
-      }
-    });
+    const createdText = (dfMerged.data || []).filter(row =>
+      isTextAuthor(row) &&
+      row['Дата создания'] &&
+      moment(row['Дата создания']).format('YYYY-MM') === monthPeriod
+    );
 
-    const report = Object.keys(reportMap).map(resp => {
-      const item = reportMap[resp];
-      return {
-        Ответственный: resp,
-        Задачи: item.Задачи,
-        Макеты: item.Макеты,
-        Варианты: item.Варианты,
-        Оценка: item.count > 0 ? (item.Оценка / item.count).toFixed(2) : 0
+    const completedText = (dfMerged.data || []).filter(row =>
+      isTextAuthor(row) &&
+      row['Выполнена'] &&
+      moment(row['Выполнена']).format('YYYY-MM') === monthPeriod
+    );
+
+    console.log("\nДИЗАЙНЕРЫ:");
+    console.log(`- Всего задач в объединенном файле: ${(dfMerged.data || []).filter(isDesigner).length}`);
+    console.log(`- Создано в отчетном периоде: ${createdDesign.length}`);
+    console.log(`- Выполнено в отчетном периоде: ${completedDesign.length}`);
+
+    console.log("\nТЕКСТОВЫЕ ЗАДАЧИ:");
+    console.log(`- Всего задач в объединенном файле: ${(dfMerged.data || []).filter(isTextAuthor).length}`);
+    console.log(`- Создано: ${createdText.length}`);
+    console.log(`- Выполнено: ${completedText.length}`);
+
+    // === 5. Формирование отчета по дизайнерам ===
+    console.log("\n5. ФОРМИРОВАНИЕ ОТЧЕТА ПО ДИЗАЙНЕРАМ:");
+
+    let report = [];
+
+    if (completedDesign.length > 0) {
+      // Стандартизируем названия колонок
+      const colRenameMap = {
+        'Кол-во макетов': 'Количество макетов',
+        'Кол-во вариантов': 'Количество предложенных вариантов'
       };
-    });
 
-    // Итоговая строка
-    const totalRow = {
-      Ответственный: 'ИТОГО',
-      Задачи: report.reduce((sum, r) => sum + r.Задачи, 0),
-      Макеты: report.reduce((sum, r) => sum + r.Макеты, 0),
-      Варианты: report.reduce((sum, r) => sum + r.Варианты, 0),
-      Оценка: report.length > 0 ? (report.reduce((sum, r) => sum + parseFloat(r.Оценка), 0) / report.length).toFixed(2) : 0
-    };
-    report.push(totalRow);
+      // Группируем данные вручную
+      const reportMap = {};
 
-    // Текстовый отчёт
-    const mpCardsCount = 0;
+      completedDesign.forEach(row => {
+        // Переименовываем колонки в объекте row
+        const renamedRow = {};
+        Object.keys(row).forEach(key => {
+          renamedRow[colRenameMap[key] || key] = row[key];
+        });
 
+        const resp = renamedRow['Ответственный'] || 'Неизвестно';
+
+        if (!reportMap[resp]) {
+          reportMap[resp] = {
+            Задачи: 0,
+            Макеты: 0,
+            Варианты: 0,
+            Оценка: 0,
+            count: 0
+          };
+        }
+
+        reportMap[resp].Задачи += 1;
+
+        // Обработка макетов
+        const makets = parseInt(renamedRow['Количество макетов']) || 0;
+        reportMap[resp].Макеты += makets;
+
+        // Обработка вариантов
+        const variants = parseInt(renamedRow['Количество предложенных вариантов']) || 0;
+        reportMap[resp].Варианты += variants;
+
+        // Обработка оценки
+        if (renamedRow['Оценка работы']) {
+          const score = parseFloat(renamedRow['Оценка работы']);
+          if (!isNaN(score)) {
+            reportMap[resp].Оценка += score;
+            reportMap[resp].count += 1;
+          }
+        }
+      });
+
+      // Формируем массив отчёта
+      report = Object.keys(reportMap).map(resp => {
+        const item = reportMap[resp];
+        return {
+          Ответственный: resp,
+          Задачи: item.Задачи,
+          Макеты: item.Макеты,
+          Варианты: item.Варианты,
+          Оценка: item.count > 0 ? (item.Оценка / item.count).toFixed(2) : 0
+        };
+      });
+
+      console.log("Отчет после группировки:");
+      console.log(JSON.stringify(report, null, 2));
+
+    } else {
+      console.warn("Нет выполненных задач дизайнеров для отчетного периода");
+    }
+
+    // Добавляем итоговую строку
+    if (report.length > 0) {
+      const totalRow = {
+        Ответственный: 'ИТОГО',
+        Задачи: report.reduce((sum, r) => sum + r.Задачи, 0),
+        Макеты: report.reduce((sum, r) => sum + r.Макеты, 0),
+        Варианты: report.reduce((sum, r) => sum + r.Варианты, 0),
+        Оценка: report.length > 0 ? (report.reduce((sum, r) => sum + parseFloat(r.Оценка), 0) / report.length).toFixed(2) : 0
+      };
+      report.push(totalRow);
+    }
+
+    // === 6. Формирование текстового отчета ===
     const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
 
 Дизайнеры:
 - Поступило задач: ${createdDesign.length}
 - Выполнено задач: ${completedDesign.length}
-- Готовых карточек МП: ${mpCardsCount} SKU
 
 Текстовые задачи:
-- Поступило: ${dfGrid.data.filter(row => {
-      const responsibleCol = 'Ответственный';
-      const createdDateCol = 'Дата создания';
-      
-      const responsible = responsibleCol ? row[responsibleCol] || 'Неизвестно' : 'Неизвестно';
-      const createdDate = createdDateCol && row[createdDateCol] ? moment(row[createdDateCol], 'DD.MM.YYYY') : null;
-      
-      return isTextAuthor({ Ответственный: responsible }) &&
-             createdDate && 
-             createdDate.isValid() &&
-             createdDate.format('YYYY-MM') === monthPeriod;
-    }).length}
-- Выполнено: ${dfMerged.data.filter(row => isTextAuthor(row) && row['Выполнена'] && moment(row['Выполнена']).format('YYYY-MM') === monthPeriod).length}
+- Поступило: ${createdText.length}
+- Выполнено: ${completedText.length}
 
 СТАТИСТИКА ПО ВЫПОЛНЕННЫМ ЗАДАЧАМ ДИЗАЙНЕРОВ:
 (только задачи, завершенные в отчетном периоде)`;
 
+    console.log("\n=== ОТЧЕТ УСПЕШНО СФОРМИРОВАН ===");
     return { report, textReport };
+
   } catch (error) {
-    console.error("Ошибка генерации отчёта:", error);
+    console.error("ОШИБКА ПРИ ФОРМИРОВАНИИ ОТЧЕТА:", error.message);
     throw error;
   }
 }
@@ -276,40 +312,52 @@ app.post('/api/upload', upload.fields([
     const gridWorkbook = xlsx.readFile(gridPath);
     const archiveWorkbook = xlsx.readFile(archivePath);
 
-    // Ищем правильные листы
-    const gridSheetName = gridWorkbook.SheetNames.find(name => name.toLowerCase().includes('sheet')) || gridWorkbook.SheetNames[0];
-    const archiveSheetName = archiveWorkbook.SheetNames.find(name => name.toLowerCase().includes('archive')) || archiveWorkbook.SheetNames[0];
-
-    const gridSheet = gridWorkbook.Sheets[gridSheetName];
-    const archiveSheet = archiveWorkbook.Sheets[archiveSheetName];
+    // Читаем первый лист — он содержит данные
+    const gridSheet = gridWorkbook.Sheets[gridWorkbook.SheetNames[0]];
+    const archiveSheet = archiveWorkbook.Sheets[archiveWorkbook.SheetNames[0]];
 
     if (!gridSheet || !archiveSheet) {
       throw new Error('Один из листов Excel пуст или не найден');
     }
 
-    const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1 });
-    const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1 });
+    // Используем { defval: null } для корректной обработки пустых ячеек
+    const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1, defval: null });
+    const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1, defval: null });
 
     // Обработка "Грид"
     let gridColumns = [];
     let gridData = [];
 
     if (allGridRows.length > 0) {
-      gridColumns = allGridRows[0];
-      if (allGridRows.length > 1) {
-        gridData = allGridRows.slice(1).map(row => {
+      // Находим первую строку, которая выглядит как заголовок
+      let headerRowIndex = 0;
+      for (let i = 0; i < allGridRows.length; i++) {
+        const row = allGridRows[i];
+        if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
+          if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
+            headerRowIndex = i;
+            break;
+          }
+        }
+      }
+
+      gridColumns = allGridRows[headerRowIndex];
+      if (allGridRows.length > headerRowIndex + 1) {
+        gridData = allGridRows.slice(headerRowIndex + 1).map(row => {
           const obj = {};
           gridColumns.forEach((col, i) => {
-            obj[col] = row[i];
+            if (col && typeof col === 'string') {
+              obj[col.trim()] = row[i];
+            }
           });
           return obj;
-        });
+        }).filter(row => Object.keys(row).length > 0); // Удаляем пустые строки
       }
     }
 
     const dfGrid = {
       columns: gridColumns,
-      data: gridData
+       gridData || []
     };
 
     // Обработка "Архив"
@@ -317,28 +365,41 @@ app.post('/api/upload', upload.fields([
     let archiveData = [];
 
     if (allArchiveRows.length > 0) {
-      archiveColumns = allArchiveRows[0];
-      if (allArchiveRows.length > 1) {
-        archiveData = allArchiveRows.slice(1).map(row => {
+      // Находим первую строку, которая выглядит как заголовок
+      let headerRowIndex = 0;
+      for (let i = 0; i < allArchiveRows.length; i++) {
+        const row = allArchiveRows[i];
+        if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
+          if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
+            headerRowIndex = i;
+            break;
+          }
+        }
+      }
+
+      archiveColumns = allArchiveRows[headerRowIndex];
+      if (allArchiveRows.length > headerRowIndex + 1) {
+        archiveData = allArchiveRows.slice(headerRowIndex + 1).map(row => {
           const obj = {};
           archiveColumns.forEach((col, i) => {
-            obj[col] = row[i];
+            if (col && typeof col === 'string') {
+              obj[col.trim()] = row[i];
+            }
           });
           return obj;
-        });
+        }).filter(row => Object.keys(row).length > 0); // Удаляем пустые строки
       }
     }
 
     const dfArchive = {
       columns: archiveColumns,
-      data: archiveData
+       archiveData || []
     };
 
     // Логирование для отладки
     console.log("Архив: колонки =", dfArchive.columns);
-    console.log("Грид: колонки =", dfGrid.columns);
-    console.log("Архив: количество строк =", dfArchive.data?.length || 0);
-    console.log("Грид: количество строк =", dfGrid.data?.length || 0);
+    console.log("Архив: количество строк =", (dfArchive.data || []).length);
+    console.log("Грид: количество строк =", (dfGrid.data || []).length);
 
     // Генерация отчёта
     const { report, textReport } = generateReport(
@@ -353,7 +414,7 @@ app.post('/api/upload', upload.fields([
     await fs.mkdir(tempDir);
 
     // Excel файл
-    const ws = xlsx.utils.sheet_to_json(report);
+    const ws = xlsx.utils.json_to_sheet(report);
     const wb = xlsx.utils.book_new();
     xlsx.utils.book_append_sheet(wb, ws, "Отчёт");
     const excelPath = path.join(tempDir, `Отчет_${month}_${year}.xlsx`);
@@ -379,14 +440,15 @@ app.post('/api/upload', upload.fields([
     await fs.unlink(archivePath);
     await fs.remove(tempDir);
 
+    // Отправляем ответ — с защитой от пустого отчёта
     res.json({
       success: true,
       textReport: textReport,
-      report: report
+      report: report || [] // на случай, если report undefined
     });
 
   } catch (error) {
-    console.error("❌ Ошибка в /api/upload:", error);
+    console.error("❌ Ошибка в /api/upload:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
