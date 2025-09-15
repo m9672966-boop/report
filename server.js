@@ -74,13 +74,12 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
 // === ГЕНЕРАЦИЯ ОТЧЕТА ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
-    console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
+    console.log("=== 🚨 НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА (ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ) ===");
     console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
     // === 1. Объединение данных ===
-    console.log("\n1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА");
+    console.log("\n=== 1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА ===");
 
-    // Находим общие колонки
     const commonColumns = dfArchive.columns.filter(col => dfGrid.columns.includes(col));
     console.log("Общие колонки для объединения:", commonColumns);
 
@@ -88,7 +87,6 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       throw new Error("Нет общих колонок для объединения!");
     }
 
-    // Создаем новый массив данных из Грида с общими колонками
     const gridCommonData = (dfGrid.data || []).map(row => {
       const newRow = {};
       commonColumns.forEach(col => {
@@ -97,35 +95,52 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       return newRow;
     });
 
-    // Объединяем данные
     const mergedData = [...(dfArchive.data || []), ...gridCommonData];
     console.log(`Объединено данных: Грид=${gridCommonData.length} строк + Архив=${(dfArchive.data || []).length} строк = Итого=${mergedData.length} строк`);
 
-    // Создаем объединённый DataFrame
     let dfMerged = {
       columns: dfArchive.columns,
-      data: mergedData || []
+       mergedData || []
     };
 
-    // Заменяем пустые значения в Ответственном на "Неизвестно"
     dfMerged.data = (dfMerged.data || []).map(row => {
       row['Ответственный'] = row['Ответственный'] || 'Неизвестно';
       return row;
     });
 
     // === 2. Преобразование дат ===
-    console.log("\n2. ПРЕОБРАЗОВАНИЕ ДАТ:");
+    console.log("\n=== 2. ПРЕОБРАЗОВАНИЕ ДАТ (ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ) ===");
+    let sampleLogged = 0;
+    const MAX_SAMPLE_LOGS = 5; // Логируем только первые 5 строк для читаемости
+
     dfMerged.data = (dfMerged.data || []).map(row => {
+      // Логируем исходные значения дат
+      if (sampleLogged < MAX_SAMPLE_LOGS) {
+        console.log(`\n--- Строка ${sampleLogged + 1} ---`);
+        console.log(`Исходная дата создания:`, row['Дата создания']);
+        console.log(`Исходная дата выполнения:`, row['Выполнена']);
+      }
+
+      // Парсим даты
       const createdDate = moment(row['Дата создания'], ['D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
       const completedDate = moment(row['Выполнена'], ['D/M/YY', 'DD/MM/YY', 'YYYY-MM-DD', 'DD.MM.YYYY']);
+
+      if (sampleLogged < MAX_SAMPLE_LOGS) {
+        console.log(`После парсинга дата создания:`, createdDate.isValid() ? createdDate.format() : 'INVALID');
+        console.log(`После парсинга дата выполнения:`, completedDate.isValid() ? completedDate.format() : 'INVALID');
+      }
+
       row['Дата создания'] = createdDate.isValid() ? createdDate.toDate() : null;
       row['Выполнена'] = completedDate.isValid() ? completedDate.toDate() : null;
+
+      sampleLogged++;
       return row;
     });
-    console.log(`Преобразовано дат: ${dfMerged.data.length} строк`);
+
+    console.log(`\nПреобразовано дат: ${dfMerged.data.length} строк`);
 
     // === 3. Определение месяца ===
-    console.log("\n3. ОПРЕДЕЛЕНИЕ МЕСЯЦА ОТЧЕТА:");
+    console.log("\n=== 3. ОПРЕДЕЛЕНИЕ МЕСЯЦА ОТЧЕТА ===");
     const monthObj = moment(monthName, 'MMMM', true);
     if (!monthObj.isValid()) {
       throw new Error("Неверный месяц");
@@ -135,24 +150,42 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log(`Период для фильтрации: ${monthPeriod}`);
 
     // === 4. Подсчет статистики ===
-    console.log("\n4. ПОДСЧЕТ СТАТИСТИКИ:");
+    console.log("\n=== 4. ПОДСЧЕТ СТАТИСТИКИ (ДЕТАЛЬНОЕ ЛОГИРОВАНИЕ) ===");
     const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
-
     const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
     const isDesigner = (row) => !isTextAuthor(row);
 
-    // Фильтруем задачи по периоду
-    const createdDesign = (dfMerged.data || []).filter(row =>
-      isDesigner(row) &&
-      row['Дата создания'] &&
-      moment(row['Дата создания']).format('YYYY-MM') === monthPeriod
-    );
+    // Логируем первые 5 задач с датами
+    console.log("\n--- ПЕРВЫЕ 5 ЗАДАЧ С ДАТАМИ ---");
+    let dateSampleLogged = 0;
+    dfMerged.data.slice(0, 5).forEach(row => {
+      console.log(`\nЗадача ${dateSampleLogged + 1}:`);
+      console.log(`Ответственный:`, row['Ответственный']);
+      console.log(`Дата создания:`, row['Дата создания'] ? moment(row['Дата создания']).format('YYYY-MM-DD') : 'null');
+      console.log(`Дата выполнения:`, row['Выполнена'] ? moment(row['Выполнена']).format('YYYY-MM-DD') : 'null');
+      dateSampleLogged++;
+    });
 
-    const completedDesign = (dfMerged.data || []).filter(row =>
-      isDesigner(row) &&
-      row['Выполнена'] &&
-      moment(row['Выполнена']).format('YYYY-MM') === monthPeriod
-    );
+    // Фильтруем задачи по периоду
+    const createdDesign = (dfMerged.data || []).filter(row => {
+      const match = isDesigner(row) &&
+        row['Дата создания'] &&
+        moment(row['Дата создания']).format('YYYY-MM') === monthPeriod;
+      if (match && sampleLogged < MAX_SAMPLE_LOGS) {
+        console.log(`\n✅ НАЙДЕНА ЗАДАЧА, СОЗДАННАЯ В ${monthPeriod}:`, row['Название']);
+      }
+      return match;
+    });
+
+    const completedDesign = (dfMerged.data || []).filter(row => {
+      const match = isDesigner(row) &&
+        row['Выполнена'] &&
+        moment(row['Выполнена']).format('YYYY-MM') === monthPeriod;
+      if (match && sampleLogged < MAX_SAMPLE_LOGS) {
+        console.log(`\n✅ НАЙДЕНА ЗАДАЧА, ВЫПОЛНЕННАЯ В ${monthPeriod}:`, row['Название']);
+      }
+      return match;
+    });
 
     const createdText = (dfMerged.data || []).filter(row =>
       isTextAuthor(row) &&
@@ -166,7 +199,8 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       moment(row['Выполнена']).format('YYYY-MM') === monthPeriod
     );
 
-    console.log("\nДИЗАЙНЕРЫ:");
+    console.log("\n=== ИТОГИ ПОДСЧЕТА ===");
+    console.log("ДИЗАЙНЕРЫ:");
     console.log(`- Всего задач в объединенном файле: ${(dfMerged.data || []).filter(isDesigner).length}`);
     console.log(`- Создано в отчетном периоде: ${createdDesign.length}`);
     console.log(`- Выполнено в отчетном периоде: ${completedDesign.length}`);
@@ -177,22 +211,19 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log(`- Выполнено: ${completedText.length}`);
 
     // === 5. Формирование отчета по дизайнерам ===
-    console.log("\n5. ФОРМИРОВАНИЕ ОТЧЕТА ПО ДИЗАЙНЕРАМ:");
+    console.log("\n=== 5. ФОРМИРОВАНИЕ ОТЧЕТА ПО ДИЗАЙНЕРАМ ===");
 
     let report = [];
 
     if (completedDesign.length > 0) {
-      // Стандартизируем названия колонок
       const colRenameMap = {
         'Кол-во макетов': 'Количество макетов',
         'Кол-во вариантов': 'Количество предложенных вариантов'
       };
 
-      // Группируем данные вручную
       const reportMap = {};
 
       completedDesign.forEach(row => {
-        // Переименовываем колонки в объекте row
         const renamedRow = {};
         Object.keys(row).forEach(key => {
           renamedRow[colRenameMap[key] || key] = row[key];
@@ -211,16 +242,11 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
         }
 
         reportMap[resp].Задачи += 1;
-
-        // Обработка макетов
         const makets = parseInt(renamedRow['Количество макетов']) || 0;
         reportMap[resp].Макеты += makets;
-
-        // Обработка вариантов
         const variants = parseInt(renamedRow['Количество предложенных вариантов']) || 0;
         reportMap[resp].Варианты += variants;
 
-        // Обработка оценки
         if (renamedRow['Оценка работы']) {
           const score = parseFloat(renamedRow['Оценка работы']);
           if (!isNaN(score)) {
@@ -230,7 +256,6 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
         }
       });
 
-      // Формируем массив отчёта
       report = Object.keys(reportMap).map(resp => {
         const item = reportMap[resp];
         return {
@@ -246,10 +271,10 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       console.log(JSON.stringify(report, null, 2));
 
     } else {
-      console.warn("Нет выполненных задач дизайнеров для отчетного периода");
+      console.warn("❗ Нет выполненных задач дизайнеров для отчетного периода");
     }
 
-    // Добавляем итоговую строки
+    // Добавляем итоговую строку
     if (report.length > 0) {
       const totalRow = {
         Ответственный: 'ИТОГО',
@@ -275,15 +300,14 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
 СТАТИСТИКА ПО ВЫПОЛНЕННЫМ ЗАДАЧАМ ДИЗАЙНЕРОВ:
 (только задачи, завершенные в отчетном периоде)`;
 
-    console.log("\n=== ОТЧЕТ УСПЕШНО СФОРМИРОВАН ===");
+    console.log("\n=== 🎉 ОТЧЕТ УСПЕШНО СФОРМИРОВАН ===");
     return { report, textReport };
 
   } catch (error) {
-    console.error("ОШИБКА ПРИ ФОРМИРОВАНИИ ОТЧЕТА:", error.message);
+    console.error("❌ ОШИБКА ПРИ ФОРМИРОВАНИИ ОТЧЕТА:", error.message);
     throw error;
   }
 }
-
 // === МАРШРУТЫ ===
 
 app.get('/', (req, res) => {
