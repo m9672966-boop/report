@@ -71,196 +71,203 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === ГЕНЕРАЦИЯ ОТЧЁТА ===
+// === ГЕНЕРАЦИЯ ОТЧЁТА (ПОЛНАЯ ЛОГИКА КАК В БОТЕ) ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
-    // Используем данные из Архива для отчета
-    let dfMerged = { columns: dfArchive.columns, data: dfArchive.data };
+    console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
+    console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
-    // Проверка данных
-    if (!dfMerged.data || !Array.isArray(dfMerged.data)) {
-      throw new Error("Данные из файла 'Архив.xlsx' отсутствуют или повреждены");
+    // === 1. Объединение данных ===
+    console.log("\n1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА");
+
+    // Находим общие колонки
+    const commonColumns = dfArchive.columns.filter(col => dfGrid.columns.includes(col));
+    console.log("Общие колонки для объединения:", commonColumns);
+
+    if (commonColumns.length === 0) {
+      throw new Error("Нет общих колонок для объединения!");
     }
 
-    console.log("Обработано строк из Архива:", dfMerged.data.length);
-    console.log("Колонки Архива:", dfMerged.columns);
+    // Создаем новый массив данных из Грида с общими колонками
+    const gridCommonData = dfGrid.data.map(row => {
+      const newRow = {};
+      commonColumns.forEach(col => {
+        newRow[col] = row[col] || null;
+      });
+      return newRow;
+    });
 
-    // Преобразование дат с помощью moment
+    // Объединяем данные
+    const mergedData = [...dfArchive.data, ...gridCommonData];
+    console.log(`Объединено данных: Грид=${gridCommonData.length} строк + Архив=${dfArchive.data.length} строк = Итого=${mergedData.length} строк`);
+
+    // Создаем объединённый DataFrame
+    let dfMerged = {
+      columns: dfArchive.columns,
+      data: mergedData
+    };
+
+    // Заменяем пустые значения в Ответственном на "Неизвестно"
     dfMerged.data = dfMerged.data.map(row => {
-      // Ищем колонку с датой создания (может называться по-разному)
-      const createdDateCol = dfMerged.columns.find(col => 
-        col.includes('Дата созда') || col.includes('Date')
-      );
-      
-      // Ищем колонку с датой выполнения
-      const completedDateCol = dfMerged.columns.find(col => 
-        col.includes('Выполнена') || col.includes('Completed')
-      );
-      
-      // Ищем колонку с ответственным
-      const responsibleCol = dfMerged.columns.find(col => 
-        col.includes('Ответствен') || col.includes('Responsible')
-      );
-
-      if (createdDateCol && row[createdDateCol]) {
-        const createdDate = moment(row[createdDateCol]);
-        row['Дата создания'] = createdDate.isValid() ? createdDate.toDate() : null;
-      } else {
-        row['Дата создания'] = null;
-      }
-
-      if (completedDateCol && row[completedDateCol]) {
-        const completedDate = moment(row[completedDateCol]);
-        row['Выполнена'] = completedDate.isValid() ? completedDate.toDate() : null;
-      } else {
-        row['Выполнена'] = null;
-      }
-
-      if (responsibleCol) {
-        row['Ответственный'] = row[responsibleCol] || 'Неизвестно';
-      } else {
-        row['Ответственный'] = 'Неизвестно';
-      }
-
+      row['Ответственный'] = row['Ответственный'] || 'Неизвестно';
       return row;
     });
 
-    // Определение месяца
+    // === 2. Преобразование дат ===
+    console.log("\n2. ПРЕОБРАЗОВАНИЕ ДАТ:");
+    dfMerged.data = dfMerged.data.map(row => {
+      const createdDate = moment(row['Дата создания']);
+      const completedDate = moment(row['Выполнена']);
+      row['Дата создания'] = createdDate.isValid() ? createdDate.toDate() : null;
+      row['Выполнена'] = completedDate.isValid() ? completedDate.toDate() : null;
+      return row;
+    });
+    console.log(`Преобразовано дат: ${dfMerged.data.length} строк`);
+
+    // === 3. Определение месяца ===
+    console.log("\n3. ОПРЕДЕЛЕНИЕ МЕСЯЦА ОТЧЕТА:");
     const monthObj = moment(monthName, 'MMMM', true);
     if (!monthObj.isValid()) {
       throw new Error("Неверный месяц");
     }
     const monthNum = monthObj.month() + 1;
     const monthPeriod = `${year}-${monthNum.toString().padStart(2, '0')}`;
+    console.log(`Период для фильтрации: ${monthPeriod}`);
 
-    // Подсчет статистики
+    // === 4. Подсчет статистики ===
+    console.log("\n4. ПОДСЧЕТ СТАТИСТИКИ:");
     const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
+
     const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
-    const isDesigner = (row) => !isTextAuthor(row) || row['Ответственный'] === 'Неизвестно';
+    const isDesigner = (row) => !isTextAuthor(row);
 
-    // Для статистики "поступило" — используем Грид
-    const createdDesign = dfGrid.data.filter(row => {
-      const responsibleCol = dfGrid.columns.find(col => 
-        col.includes('Ответствен') || col.includes('Responsible')
-      );
-      const createdDateCol = dfGrid.columns.find(col => 
-        col.includes('Дата созда') || col.includes('Date')
-      );
-      
-      const responsible = responsibleCol ? row[responsibleCol] || 'Неизвестно' : 'Неизвестно';
-      const createdDate = createdDateCol && row[createdDateCol] ? moment(row[createdDateCol]) : null;
-      
-      return isDesigner({ Ответственный: responsible }) &&
-             createdDate && 
-             createdDate.isValid() &&
-             createdDate.format('YYYY-MM') === monthPeriod;
-    });
+    // Фильтруем задачи по периоду
+    const createdDesign = dfMerged.data.filter(row =>
+      isDesigner(row) &&
+      row['Дата создания'] &&
+      moment(row['Дата создания']).format('YYYY-MM') === monthPeriod
+    );
 
-    const completedDesign = dfMerged.data.filter(row => 
-      isDesigner(row) && 
-      row['Выполнена'] && 
+    const completedDesign = dfMerged.data.filter(row =>
+      isDesigner(row) &&
+      row['Выполнена'] &&
       moment(row['Выполнена']).format('YYYY-MM') === monthPeriod
     );
 
-    // Формирование отчета по дизайнерам
-    const reportMap = {};
-    completedDesign.forEach(row => {
-      const resp = row['Ответственный'];
-      if (!reportMap[resp]) {
-        reportMap[resp] = { 
-          Задачи: 0, 
-          Макеты: 0, 
-          Варианты: 0, 
-          Оценка: 0, 
-          count: 0 
-        };
-      }
-      reportMap[resp].Задачи += 1;
-      
-      // Ищем колонки с количеством макетов и вариантов
-      const maketsCol = dfMerged.columns.find(col => 
-        col.includes('Количество макетов') || col.includes('Макеты')
-      );
-      const variantsCol = dfMerged.columns.find(col => 
-        col.includes('Количество предложенных вариантов') || col.includes('Варианты')
-      );
-      const scoreCol = dfMerged.columns.find(col => 
-        col.includes('Оценка работы') || col.includes('Оценка')
-      );
-      
-      if (maketsCol && row[maketsCol]) {
-        reportMap[resp].Макеты += parseInt(row[maketsCol]) || 0;
-      }
-      
-      if (variantsCol && row[variantsCol]) {
-        reportMap[resp].Варианты += parseInt(row[variantsCol]) || 0;
-      }
-      
-      if (scoreCol && row[scoreCol]) {
-        const score = parseFloat(row[scoreCol]);
-        if (!isNaN(score)) {
-          reportMap[resp].Оценка += score;
-          reportMap[resp].count += 1;
-        }
-      }
-    });
+    const createdText = dfMerged.data.filter(row =>
+      isTextAuthor(row) &&
+      row['Дата создания'] &&
+      moment(row['Дата создания']).format('YYYY-MM') === monthPeriod
+    );
 
-    const report = Object.keys(reportMap).map(resp => {
-      const item = reportMap[resp];
-      return {
-        Ответственный: resp,
-        Задачи: item.Задачи,
-        Макеты: item.Макеты,
-        Варианты: item.Варианты,
-        Оценка: item.count > 0 ? (item.Оценка / item.count).toFixed(2) : 0
+    const completedText = dfMerged.data.filter(row =>
+      isTextAuthor(row) &&
+      row['Выполнена'] &&
+      moment(row['Выполнена']).format('YYYY-MM') === monthPeriod
+    );
+
+    console.log("\nДИЗАЙНЕРЫ:");
+    console.log(`- Всего задач в объединенном файле: ${dfMerged.data.filter(isDesigner).length}`);
+    console.log(`- Создано в отчетном периоде: ${createdDesign.length}`);
+    console.log(`- Выполнено в отчетном периоде: ${completedDesign.length}`);
+
+    console.log("\nТЕКСТОВЫЕ ЗАДАЧИ:");
+    console.log(`- Всего задач в объединенном файле: ${dfMerged.data.filter(isTextAuthor).length}`);
+    console.log(`- Создано в отчетном периоде: ${createdText.length}`);
+    console.log(`- Выполнено в отчетном периоде: ${completedText.length}`);
+
+    // === 5. Формирование отчета по дизайнерам ===
+    console.log("\n5. ФОРМИРОВАНИЕ ОТЧЕТА ПО ДИЗАЙНЕРАМ:");
+
+    let report = [];
+
+    if (completedDesign.length > 0) {
+      // Стандартизируем названия колонок (аналогично боту)
+      const colRenameMap = {
+        'Кол-во макетов': 'Количество макетов',
+        'Кол-во вариантов': 'Количество предложенных вариантов'
       };
-    });
 
-    // Итоговая строка
-    const totalRow = {
-      Ответственный: 'ИТОГО',
-      Задачи: report.reduce((sum, r) => sum + r.Задачи, 0),
-      Макеты: report.reduce((sum, r) => sum + r.Макеты, 0),
-      Варианты: report.reduce((sum, r) => sum + r.Варианты, 0),
-      Оценка: report.length > 0 ? (report.reduce((sum, r) => sum + parseFloat(r.Оценка), 0) / report.length).toFixed(2) : 0
-    };
-    report.push(totalRow);
+      // Группируем данные вручную
+      const reportMap = {};
 
-    // Текстовый отчёт
-    const mpCardsCount = 0;
+      completedDesign.forEach(row => {
+        // Переименовываем колонки в объекте row
+        const renamedRow = {};
+        Object.keys(row).forEach(key => {
+          renamedRow[colRenameMap[key] || key] = row[key];
+        });
 
+        const resp = renamedRow['Ответственный'] || 'Неизвестно';
+
+        if (!reportMap[resp]) {
+          reportMap[resp] = {
+            Задачи: 0,
+            Макеты: 0,
+            Варианты: 0,
+            Оценка: 0,
+            count: 0
+          };
+        }
+
+        reportMap[resp].Задачи += 1;
+
+        // Обработка макетов
+        const makets = parseInt(renamedRow['Количество макетов']) || 0;
+        reportMap[resp].Макеты += makets;
+
+        // Обработка вариантов
+        const variants = parseInt(renamedRow['Количество предложенных вариантов']) || 0;
+        reportMap[resp].Варианты += variants;
+
+        // Обработка оценки
+        if (renamedRow['Оценка работы']) {
+          const score = parseFloat(renamedRow['Оценка работы']);
+          if (!isNaN(score)) {
+            reportMap[resp].Оценка += score;
+            reportMap[resp].count += 1;
+          }
+        }
+      });
+
+      // Формируем массив отчёта
+      report = Object.keys(reportMap).map(resp => {
+        const item = reportMap[resp];
+        return {
+          Ответственный: resp,
+          Задачи: item.Задачи,
+          Макеты: item.Макеты,
+          Варианты: item.Варианты,
+          Оценка: item.count > 0 ? (item.Оценка / item.count).toFixed(2) : 0
+        };
+      });
+
+      console.log("Отчет после группировки:");
+      console.log(JSON.stringify(report, null, 2));
+
+    } else {
+      console.warn("Нет выполненных задач дизайнеров для отчетного периода");
+    }
+
+    // === 6. Формирование текстового отчета (без карточек МП) ===
     const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
 
 Дизайнеры:
 - Поступило задач: ${createdDesign.length}
 - Выполнено задач: ${completedDesign.length}
-- Готовых карточек МП: ${mpCardsCount} SKU
 
 Текстовые задачи:
-- Поступило: ${dfGrid.data.filter(row => {
-      const responsibleCol = dfGrid.columns.find(col => 
-        col.includes('Ответствен') || col.includes('Responsible')
-      );
-      const createdDateCol = dfGrid.columns.find(col => 
-        col.includes('Дата созда') || col.includes('Date')
-      );
-      
-      const responsible = responsibleCol ? row[responsibleCol] || 'Неизвестно' : 'Неизвестно';
-      const createdDate = createdDateCol && row[createdDateCol] ? moment(row[createdDateCol]) : null;
-      
-      return isTextAuthor({ Ответственный: responsible }) &&
-             createdDate && 
-             createdDate.isValid() &&
-             createdDate.format('YYYY-MM') === monthPeriod;
-    }).length}
-- Выполнено: ${dfMerged.data.filter(row => isTextAuthor(row) && row['Выполнена'] && moment(row['Выполнена']).format('YYYY-MM') === monthPeriod).length}
+- Поступило: ${createdText.length}
+- Выполнено: ${completedText.length}
 
 СТАТИСТИКА ПО ВЫПОЛНЕННЫМ ЗАДАЧАМ ДИЗАЙНЕРОВ:
 (только задачи, завершенные в отчетном периоде)`;
 
+    console.log("\n=== ОТЧЕТ УСПЕШНО СФОРМИРОВАН ===");
     return { report, textReport };
+
   } catch (error) {
-    console.error("Ошибка генерации отчёта:", error);
+    console.error("ОШИБКА ПРИ ФОРМИРОВАНИИ ОТЧЕТА:", error);
     throw error;
   }
 }
@@ -349,7 +356,6 @@ app.post('/api/upload', upload.fields([
 
     // Логирование для отладки
     console.log("Архив: колонки =", dfArchive.columns);
-    console.log("Грид: колонки =", dfGrid.columns);
     console.log("Архив: количество строк =", dfArchive.data?.length || 0);
     console.log("Грид: количество строк =", dfGrid.data?.length || 0);
 
