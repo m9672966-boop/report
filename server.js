@@ -120,55 +120,81 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log(`Период для фильтрации: ${monthPeriod}`);
 
     // === 4. Подсчет статистики ===
-    console.log("\n4. ПОДСЧЕТ СТАТИСТИКИ:");
-    const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
+    // === 4. Подсчет статистики ===
+console.log("\n4. ПОДСЧЕТ СТАТИСТИКИ:");
+const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
 
-    const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
-    const isDesigner = (row) => !isTextAuthor(row) && row['Ответственный'] !== 'Неизвестно';
-    const isUnknown = (row) => row['Ответственный'] === 'Неизвестно';
+const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
+const isDesigner = (row) => !isTextAuthor(row) && row['Ответственный'] !== 'Неизвестно';
+const isUnknown = (row) => row['Ответственный'] === 'Неизвестно';
 
-    const createdDesign = (dfMerged.data || []).filter(row => {
-      const created = row['Дата создания'];
-      return isDesigner(row) && created && moment(created).format('YYYY-MM') === monthPeriod;
-    });
+// Логируем общее количество
+console.log(`Всего задач в объединённом файле: ${dfMerged.data.length}`);
 
-    const completedDesign = (dfMerged.data || []).filter(row => {
-      const completed = row['Выполнена'];
-      return isDesigner(row) && completed && moment(completed).format('YYYY-MM') === monthPeriod;
-    });
+// Фильтруем задачи по периоду
+console.log(`Фильтруем по периоду: ${monthPeriod}`);
 
-    const createdText = (dfMerged.data || []).filter(row => {
-      const created = row['Дата создания'];
-      return isTextAuthor(row) && created && moment(created).format('YYYY-MM') === monthPeriod;
-    });
+const createdDesign = [];
+const completedDesign = [];
 
-    const completedText = (dfMerged.data || []).filter(row => {
-      const completed = row['Выполнена'];
-      return isTextAuthor(row) && completed && moment(completed).format('YYYY-MM') === monthPeriod;
-    });
+const createdText = [];
+const completedText = [];
 
-    const createdUnknown = (dfMerged.data || []).filter(row => {
-      const created = row['Дата создания'];
-      return isUnknown(row) && created && moment(created).format('YYYY-MM') === monthPeriod;
-    });
+const createdUnknown = [];
+const completedUnknown = [];
 
-    const completedUnknown = (dfMerged.data || []).filter(row => {
-      const completed = row['Выполнена'];
-      return isUnknown(row) && completed && moment(completed).format('YYYY-MM') === monthPeriod;
-    });
+for (const row of dfMerged.data) {
+  // Обработка даты создания
+  let created = row['Дата создания'];
+  if (created) {
+    created = excelDateToJSDate(created);
+    if (created && moment(created).isValid()) {
+      const formatted = moment(created).format('YYYY-MM');
+      if (formatted === monthPeriod) {
+        if (isDesigner(row)) {
+          createdDesign.push(row);
+        } else if (isTextAuthor(row)) {
+          createdText.push(row);
+        } else if (isUnknown(row)) {
+          createdUnknown.push(row);
+        }
+      }
+    }
+  }
 
-    console.log("\nДИЗАЙНЕРЫ:");
-    console.log(`- Создано в отчетном периоде: ${createdDesign.length}`);
-    console.log(`- Выполнено в отчетном периоде: ${completedDesign.length}`);
+  // Обработка даты выполнения
+  let completed = row['Выполнена'];
+  if (completed) {
+    completed = excelDateToJSDate(completed);
+    if (completed && moment(completed).isValid()) {
+      const formatted = moment(completed).format('YYYY-MM');
+      if (formatted === monthPeriod) {
+        if (isDesigner(row)) {
+          completedDesign.push(row);
+        } else if (isTextAuthor(row)) {
+          completedText.push(row);
+        } else if (isUnknown(row)) {
+          completedUnknown.push(row);
+        }
+      }
+    }
+  }
+}
 
-    console.log("\nТЕКСТОВЫЕ ЗАДАЧИ:");
-    console.log(`- Создано: ${createdText.length}`);
-    console.log(`- Выполнено: ${completedText.length}`);
+console.log("\nДИЗАЙНЕРЫ:");
+console.log(`- Всего задач в объединенном файле: ${dfMerged.data.filter(isDesigner).length}`);
+console.log(`- Создано в отчетном периоде: ${createdDesign.length}`);
+console.log(`- Выполнено в отчетном периоде: ${completedDesign.length}`);
 
-    console.log("\nЗАДАЧИ БЕЗ ОТВЕТСТВЕННОГО:");
-    console.log(`- Создано: ${createdUnknown.length}`);
-    console.log(`- Выполнено: ${completedUnknown.length}`);
+console.log("\nТЕКСТОВЫЕ ЗАДАЧИ:");
+console.log(`- Всего задач в объединенном файле: ${dfMerged.data.filter(isTextAuthor).length}`);
+console.log(`- Создано: ${createdText.length}`);
+console.log(`- Выполнено: ${completedText.length}`);
 
+console.log("\nЗАДАЧИ БЕЗ ОТВЕТСТВЕННОГО:");
+console.log(`- Всего задач в объединенном файле: ${dfMerged.data.filter(isUnknown).length}`);
+console.log(`- Создано: ${createdUnknown.length}`);
+console.log(`- Выполнено: ${completedUnknown.length}`);
     // === 5. Формирование отчета по дизайнерам ===
     console.log("\n5. ФОРМИРОВАНИЕ ОТЧЕТА ПО ДИЗАЙНЕРАМ:");
 
