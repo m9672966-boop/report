@@ -6,7 +6,6 @@ const multer = require('multer');
 const xlsx = require('xlsx');
 const fs = require('fs-extra');
 const path = require('path');
-const archiver = require('archiver');
 const moment = require('moment');
 const FormData = require('form-data');
 const fetch = require('node-fetch');
@@ -71,36 +70,50 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
+// === НАДЕЖНАЯ ФУНКЦИЯ ПРЕОБРАЗОВАНИЯ EXCEL ДАТЫ ===
+function excelDateToJSDate(serial) {
+  if (serial == null || serial === '') return null;
+  if (serial instanceof Date) return serial;
+
+  // Если строка — попробовать парсить как дату
+  if (typeof serial === 'string') {
+    const parsed = parseFloat(serial);
+    if (!isNaN(parsed)) {
+      serial = parsed;
+    } else {
+      const date = new Date(serial);
+      if (!isNaN(date.getTime())) return date;
+      return null;
+    }
+  }
+
+  // Если число — обработать как Excel serial date
+  if (typeof serial === 'number') {
+    const excelEpochWithError = new Date(1899, 11, 30); // Коррекция Excel bug
+    const utcDays = Math.floor(serial - 1);
+    const milliseconds = utcDays * 24 * 60 * 60 * 1000;
+    return new Date(excelEpochWithError.getTime() + milliseconds);
+  }
+
+  return null;
+}
+
 // === ГЕНЕРАЦИЯ ОТЧЕТА ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
     console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
     console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
-    // === 1. Объединение данных ===
-    console.log("\n1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА");
+    // Используем ТОЛЬКО архив (как в текущей логике)
     let dfMerged = {
       columns: dfArchive.columns,
       data: [...(dfArchive.data || [])]
     };
-    console.log("Используем только данные из Архива для отчета");
-    console.log(`Количество строк в Архиве: ${dfMerged.data.length}`);
 
-    // === 2. Преобразование дат и обработка пустых ответственных ===
-    console.log("\n2. ПРЕОБРАЗОВАНИЕ ДАТ И ОБРАБОТКА ПУСТЫХ ОТВЕТСТВЕННЫХ:");
+    console.log("Количество строк в архиве:", dfMerged.data.length);
 
-    function excelDateToJSDate(serial) {
-      if (serial === null || serial === undefined) return null;
-      if (typeof serial === 'number') {
-        const excelEpochWithError = new Date(1899, 11, 30);
-        const utcDays = Math.floor(serial - 1);
-        const milliseconds = utcDays * 24 * 60 * 60 * 1000;
-        return new Date(excelEpochWithError.getTime() + milliseconds);
-      }
-      return null;
-    }
-
-    dfMerged.data = (dfMerged.data || []).map((row, index) => {
+    // Преобразуем даты
+    dfMerged.data = dfMerged.data.map(row => {
       row['Дата создания'] = excelDateToJSDate(row['Дата создания']);
       row['Выполнена'] = excelDateToJSDate(row['Выполнена']);
       if (!row['Ответственный'] || row['Ответственный'].toString().trim() === '') {
@@ -109,102 +122,78 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       return row;
     });
 
-    // === 3. Определение месяца ===
-    console.log("\n3. ОПРЕДЕЛЕНИЕ МЕСЯЦА ОТЧЕТА:");
+    // Определяем период
     const monthObj = moment(monthName, 'MMMM', true);
-    if (!monthObj.isValid()) {
-      throw new Error("Неверный месяц");
-    }
+    if (!monthObj.isValid()) throw new Error("Неверный месяц");
     const monthNum = monthObj.month() + 1;
     const monthPeriod = `${year}-${monthNum.toString().padStart(2, '0')}`;
-    console.log(`Период для фильтрации: ${monthPeriod}`);
+    console.log(`Фильтруем по периоду: ${monthPeriod}`);
 
-    // === 4. Подсчет статистики ===
-    // === 4. Подсчет статистики ===
-console.log("\n4. ПОДСЧЕТ СТАТИСТИКИ:");
-const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
+    // Фильтры
+    const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
+    const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
+    const isDesigner = (row) => !isTextAuthor(row) && row['Ответственный'] !== 'Неизвестно';
+    const isUnknown = (row) => row['Ответственный'] === 'Неизвестно';
 
-const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
-const isDesigner = (row) => !isTextAuthor(row) && row['Ответственный'] !== 'Неизвестно';
-const isUnknown = (row) => row['Ответственный'] === 'Неизвестно';
+    // Сбор статистики с валидацией дат
+    const createdDesign = [];
+    const completedDesign = [];
+    const createdText = [];
+    const completedText = [];
+    const createdUnknown = [];
+    const completedUnknown = [];
 
-// Логируем общее количество
-console.log(`Всего задач в объединённом файле: ${dfMerged.data.length}`);
+    for (const row of dfMerged.data) {
+      // Обработка даты создания
+      let created = row['Дата создания'];
+      if (created) {
+        created = excelDateToJSDate(created);
+        if (created && moment(created).isValid()) {
+          const formatted = moment(created).format('YYYY-MM');
+          if (formatted === monthPeriod) {
+            if (isDesigner(row)) createdDesign.push(row);
+            else if (isTextAuthor(row)) createdText.push(row);
+            else if (isUnknown(row)) createdUnknown.push(row);
+          } else {
+            console.log(`❌ Дата создания ${created} (${formatted}) не попала в период ${monthPeriod}`);
+          }
+        } else {
+          console.log(`❌ Невалидная дата создания: ${row['Дата создания']}`);
+        }
+      }
 
-// Фильтруем задачи по периоду
-console.log(`Фильтруем по периоду: ${monthPeriod}`);
-
-const createdDesign = [];
-const completedDesign = [];
-
-const createdText = [];
-const completedText = [];
-
-const createdUnknown = [];
-const completedUnknown = [];
-
-for (const row of dfMerged.data) {
-  // Обработка даты создания
-  let created = row['Дата создания'];
-  if (created) {
-    created = excelDateToJSDate(created);
-    if (created && moment(created).isValid()) {
-      const formatted = moment(created).format('YYYY-MM');
-      if (formatted === monthPeriod) {
-        if (isDesigner(row)) {
-          createdDesign.push(row);
-        } else if (isTextAuthor(row)) {
-          createdText.push(row);
-        } else if (isUnknown(row)) {
-          createdUnknown.push(row);
+      // Обработка даты выполнения
+      let completed = row['Выполнена'];
+      if (completed) {
+        completed = excelDateToJSDate(completed);
+        if (completed && moment(completed).isValid()) {
+          const formatted = moment(completed).format('YYYY-MM');
+          if (formatted === monthPeriod) {
+            if (isDesigner(row)) completedDesign.push(row);
+            else if (isTextAuthor(row)) completedText.push(row);
+            else if (isUnknown(row)) completedUnknown.push(row);
+          } else {
+            console.log(`❌ Дата выполнения ${completed} (${formatted}) не попала в период ${monthPeriod}`);
+          }
+        } else {
+          console.log(`❌ Невалидная дата выполнения: ${row['Выполнена']}`);
         }
       }
     }
-  }
 
-  // Обработка даты выполнения
-  let completed = row['Выполнена'];
-  if (completed) {
-    completed = excelDateToJSDate(completed);
-    if (completed && moment(completed).isValid()) {
-      const formatted = moment(completed).format('YYYY-MM');
-      if (formatted === monthPeriod) {
-        if (isDesigner(row)) {
-          completedDesign.push(row);
-        } else if (isTextAuthor(row)) {
-          completedText.push(row);
-        } else if (isUnknown(row)) {
-          completedUnknown.push(row);
-        }
-      }
-    }
-  }
-}
+    console.log("\n📊 СТАТИСТИКА:");
+    console.log(`Дизайнеры — создано: ${createdDesign.length}, выполнено: ${completedDesign.length}`);
+    console.log(`Текстовые — создано: ${createdText.length}, выполнено: ${completedText.length}`);
+    console.log(`Без ответственного — создано: ${createdUnknown.length}, выполнено: ${completedUnknown.length}`);
 
-console.log("\nДИЗАЙНЕРЫ:");
-console.log(`- Всего задач в объединенном файле: ${dfMerged.data.filter(isDesigner).length}`);
-console.log(`- Создано в отчетном периоде: ${createdDesign.length}`);
-console.log(`- Выполнено в отчетном периоде: ${completedDesign.length}`);
-
-console.log("\nТЕКСТОВЫЕ ЗАДАЧИ:");
-console.log(`- Всего задач в объединенном файле: ${dfMerged.data.filter(isTextAuthor).length}`);
-console.log(`- Создано: ${createdText.length}`);
-console.log(`- Выполнено: ${completedText.length}`);
-
-console.log("\nЗАДАЧИ БЕЗ ОТВЕТСТВЕННОГО:");
-console.log(`- Всего задач в объединенном файле: ${dfMerged.data.filter(isUnknown).length}`);
-console.log(`- Создано: ${createdUnknown.length}`);
-console.log(`- Выполнено: ${completedUnknown.length}`);
-    // === 5. Формирование отчета по дизайнерам ===
-    console.log("\n5. ФОРМИРОВАНИЕ ОТЧЕТА ПО ДИЗАЙНЕРАМ:");
-
+    // Формируем отчёт по выполненным задачам (дизайнеры + без ответственного)
+    const allCompleted = [...completedDesign, ...completedUnknown];
     let report = [];
-    const allCompletedTasks = [...completedDesign, ...completedUnknown];
 
-    if (allCompletedTasks.length > 0) {
+    if (allCompleted.length > 0) {
       const reportMap = {};
 
-      allCompletedTasks.forEach(row => {
+      allCompleted.forEach(row => {
         const resp = row['Ответственный'] || 'Неизвестно';
         if (!reportMap[resp]) {
           reportMap[resp] = { Задачи: 0, Макеты: 0, Варианты: 0, Оценка: 0, count: 0 };
@@ -247,7 +236,7 @@ console.log(`- Выполнено: ${completedUnknown.length}`);
       report.push(totalRow);
     }
 
-    // === 6. Формирование текстового отчета ===
+    // Формируем текстовый отчёт
     const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
 
 Дизайнеры:
