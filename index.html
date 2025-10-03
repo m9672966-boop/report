@@ -3,33 +3,48 @@
 <head>
   <meta charset="utf-8">
   <title>Kaiten Report Generator</title>
-  <script src="https://files.kaiten.ru/web-sdk/v1.min.js"></script>
-  <script>
-    setTimeout(function() {
-      if (window.Addon) {
-        try {
-          window.Addon.initialize({
-            card_buttons: function() {
-              return [{
-                text: '📊 Сформировать отчёт',
-                callback: function(ctx) {
-                  window.open(window.location.origin + '/report', '_blank');
-                }
-              }];
-            }
-          });
-          console.log('✅ Kaiten addon initialized');
-        } catch (error) {
-          console.error('❌ Addon error:', error);
-        }
-      } else {
-        console.error('❌ Kaiten SDK not found');
-      }
-    }, 1000);
-  </script>
   <style>
-    body { background: transparent; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      margin: 0;
+      padding: 20px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      text-align: center;
+    }
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 20px;
+    }
+    button {
+      background: #3498db;
+      color: white;
+      padding: 12px 24px;
+      border: none;
+      border-radius: 5px;
+      font-size: 16px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    button:hover {
+      background: #2980b9;
+    }
   </style>
 </head>
-<body></body>
+<body>
+  <div class="container">
+    <h1>📊 Генератор отчётов Kaiten</h1>
+    <p>Нажмите кнопку ниже, чтобы перейти к формированию отчёта.</p>
+    <button onclick="window.open('/report', '_blank')">Сформировать отчёт</button>
+  </div>
+</body>
 </html>
