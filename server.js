@@ -99,6 +99,7 @@ function excelDateToJSDate(serial) {
 }
 
 // === ГЕНЕРАЦИЯ ОТЧЕТА ===
+// === ГЕНЕРАЦИЯ ОТЧЕТА ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   try {
     console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
@@ -109,32 +110,15 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log(`Объединено строк: ${allData.length} (Грид: ${dfGrid.data?.length || 0}, Архив: ${dfArchive.data?.length || 0})`);
 
     // === 2. ПРЕОБРАЗОВАНИЕ ДАТ И ОБРАБОТКА ОТВЕТСТВЕННЫХ ===
-    function excelDateToJSDate(serial) {
-      if (serial == null || serial === '') return null;
-      if (serial instanceof Date) return serial;
-      if (typeof serial === 'string') {
-        const parsed = parseFloat(serial);
-        if (!isNaN(parsed)) serial = parsed;
-        else {
-          const d = new Date(serial);
-          return isNaN(d.getTime()) ? null : d;
-        }
-      }
-      if (typeof serial === 'number') {
-        const excelEpochWithError = new Date(1899, 11, 30);
-        const utcDays = Math.floor(serial - 1);
-        const ms = utcDays * 24 * 60 * 60 * 1000;
-        return new Date(excelEpochWithError.getTime() + ms);
-      }
-      return null;
-    }
-
     const processedData = allData.map(row => {
       row['Дата создания'] = excelDateToJSDate(row['Дата создания']);
       row['Выполнена'] = excelDateToJSDate(row['Выполнена']);
+      
+      // Нормализация имени ответственного
       if (!row['Ответственный'] || row['Ответственный'].toString().trim() === '') {
         row['Ответственный'] = 'Неизвестно';
       }
+      
       return row;
     });
 
@@ -190,18 +174,29 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     const allCompleted = [...completedDesign, ...completedUnknown];
     let report = [];
 
-    // ДЛЯ ОТЛАДКИ - выведем все задачи Гнездиловой с оценками
-    console.log("\n=== ОТЛАДКА ДЛЯ ГНЕЗДИЛОВОЙ ===");
+    // ДЕТАЛЬНАЯ ОТЛАДКА ОЦЕНОК ГНЕЗДИЛОВОЙ
+    console.log("\n🔍 ДЕТАЛЬНАЯ ОТЛАДКА ОЦЕНОК ГНЕЗДИЛОВОЙ:");
     const gnezdilovaTasks = allCompleted.filter(row => row['Ответственный'] === 'Мария Гнездилова');
     console.log(`Найдено задач у Гнездиловой: ${gnezdilovaTasks.length}`);
     
     gnezdilovaTasks.forEach((task, index) => {
-        console.log(`Задача ${index + 1}:`, {
-            название: task['Название']?.substring(0, 50) + '...',
-            оценка: task['Оценка работы'],
-            тип_оценки: typeof task['Оценка работы'],
-            выполнена: task['Выполнена']
-        });
+      console.log(`\nЗадача ${index + 1}: "${task['Название']}"`);
+      console.log(`  - Оценка работы: ${task['Оценка работы']}`);
+      console.log(`  - Тип оценки: ${typeof task['Оценка работы']}`);
+      console.log(`  - Макеты: ${task['Количество макетов']}`);
+      console.log(`  - Варианты: ${task['Количество предложенных вариантов']}`);
+      console.log(`  - Дата выполнения: ${task['Выполнена']}`);
+      
+      // Проверяем парсинг оценки
+      const rawScore = task['Оценка работы'];
+      let parsedScore = null;
+      
+      if (rawScore !== null && rawScore !== undefined && rawScore !== '') {
+        parsedScore = parseFloat(rawScore);
+        console.log(`  - Парсинг оценки: ${rawScore} -> ${parsedScore} (isNaN: ${isNaN(parsedScore)})`);
+      } else {
+        console.log(`  - Оценка пустая: ${rawScore}`);
+      }
     });
 
     if (allCompleted.length > 0) {
@@ -223,39 +218,26 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
         reportMap[resp].Макеты += parseInt(row['Количество макетов']) || 0;
         reportMap[resp].Варианты += parseInt(row['Количество предложенных вариантов']) || 0;
         
-        // УЛУЧШЕННАЯ ОБРАБОТКА ОЦЕНКИ
-        const оценкаРаботы = row['Оценка работы'];
-        
-        // ДЛЯ ОТЛАДКИ ГНЕЗДИЛОВОЙ
-        if (resp === 'Мария Гнездилова') {
-          console.log(`Обработка оценки Гнездиловой: "${оценкаРаботы}", тип: ${typeof оценкаРаботы}`);
-        }
-        
-        if (оценкаРаботы !== null && оценкаРаботы !== undefined && оценкаРаботы !== '') {
-          const score = parseFloat(оценкаРаботы);
-          
-          // ДЛЯ ОТЛАДКИ ГНЕЗДИЛОВОЙ
-          if (resp === 'Мария Гнездилова') {
-            console.log(`  -> Преобразованная оценка: ${score}, isNaN: ${isNaN(score)}`);
-          }
-          
+        // ОБРАБОТКА ОЦЕНКИ С ДЕТАЛЬНОЙ ОТЛАДКОЙ
+        const rawScore = row['Оценка работы'];
+        if (rawScore !== null && rawScore !== undefined && rawScore !== '') {
+          const score = parseFloat(rawScore);
           if (!isNaN(score)) {
+            console.log(`✅ Учтена оценка для ${resp}: ${rawScore} -> ${score}`);
             reportMap[resp].Оценка += score;
             reportMap[resp].count += 1;
-            
-            // ДЛЯ ОТЛАДКИ ГНЕЗДИЛОВОЙ
-            if (resp === 'Мария Гнездилова') {
-              console.log(`  -> Добавлена оценка ${score}. Теперь: сумма=${reportMap[resp].Оценка}, количество=${reportMap[resp].count}`);
-            }
+          } else {
+            console.log(`❌ Нечисловая оценка для ${resp}: "${rawScore}" (тип: ${typeof rawScore})`);
           }
         }
       }
 
-      // Дополнительная отладочная информация по всем дизайнерам
-      console.log("\n📋 ДЕТАЛЬНАЯ СТАТИСТИКА ПО ДИЗАЙНЕРАМ:");
-      for (const [designer, stats] of Object.entries(reportMap)) {
-        console.log(`${designer}: задачи=${stats.Задачи}, оценки=${stats.count}, сумма оценок=${stats.Оценка}, среднее=${stats.count > 0 ? (stats.Оценка / stats.count).toFixed(2) : 0}`);
-      }
+      // Вывод статистики по оценкам перед формированием отчета
+      console.log("\n📈 СТАТИСТИКА ПО ОЦЕНКАМ:");
+      Object.keys(reportMap).forEach(resp => {
+        const data = reportMap[resp];
+        console.log(`${resp}: оценки=${data.Оценка}, кол-во=${data.count}, средняя=${data.count > 0 ? (data.Оценка / data.count).toFixed(2) : 0}`);
+      });
 
       report = Object.keys(reportMap).map(resp => ({
         Ответственный: resp,
