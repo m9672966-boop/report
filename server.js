@@ -77,6 +77,7 @@ function excelDateToJSDate(serial) {
 
   if (typeof serial === 'string') {
     const s = serial.trim();
+    
     // Поддержка DD.MM.YYYY HH:MM:SS и DD.MM.YYYY
     const datetimeMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
     if (datetimeMatch) {
@@ -94,6 +95,17 @@ function excelDateToJSDate(serial) {
       if (!isNaN(date.getTime())) return date;
     }
 
+    // Поддержка MM/DD/YY и MM/DD/YYYY (для архива)
+    const usDateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (usDateMatch) {
+      const [, month, day, year] = usDateMatch;
+      const y = year.length === 2 ? (parseInt(year) >= 70 ? '19' + year : '20' + year) : year;
+      const iso = `${y}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      const date = new Date(iso);
+      if (!isNaN(date.getTime())) return date;
+    }
+
+    // Fallback
     const fallback = new Date(s);
     if (!isNaN(fallback.getTime())) return fallback;
     return null;
