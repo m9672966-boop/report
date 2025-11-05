@@ -334,8 +334,37 @@ app.post('/api/upload', upload.fields([
       throw new Error('Один из листов Excel пуст или не найден');
     }
 
+    // ДОБАВЛЕНО: Отладка чтения Excel
+    console.log("🔍 ОТЛАДКА ЧТЕНИЯ EXCEL:");
+    
+    // Проверяем диапазон ячеек в Excel
+    console.log("Grid диапазон:", gridSheet['!ref']);
+    console.log("Archive диапазон:", archiveSheet['!ref']);
+    
+    // Проверяем конкретные ячейки с оценками
+    const checkCells = ['AU345', 'AU346', 'AU347'];
+    checkCells.forEach(cell => {
+      if (gridSheet[cell]) {
+        console.log(`Grid ${cell}:`, { 
+          значение: gridSheet[cell].v,
+          тип: gridSheet[cell].t,
+          формула: gridSheet[cell].f
+        });
+      }
+      if (archiveSheet[cell]) {
+        console.log(`Archive ${cell}:`, { 
+          значение: archiveSheet[cell].v,
+          тип: archiveSheet[cell].t,
+          формула: archiveSheet[cell].f
+        });
+      }
+    });
+
     const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1, defval: null });
     const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1, defval: null });
+
+    // Остальной код без изменений...
+    // [сохраняем текущую обработку данных]
 
     // Обработка "Грид"
     let gridColumns = [];
