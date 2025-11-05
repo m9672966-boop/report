@@ -104,39 +104,9 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
     console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
-    // === ДЕТАЛЬНАЯ ПРОВЕРКА ВСЕХ ДАННЫХ ГНЕЗДИЛОВОЙ ===
-    console.log("\n🔍 ДЕТАЛЬНАЯ ПРОВЕРКА ДАННЫХ ГНЕЗДИЛОВОЙ ИЗ ВСЕХ ФАЙЛОВ:");
-
-    // Проверяем все задачи Гнездиловой до обработки
-    const allGridGnezdilova = (dfGrid.data || []).filter(row => 
-      row['Ответственный'] && 
-      (row['Ответственный'].toString().includes('Гнездилова') || 
-       row['Ответственный'].toString().includes('Мария'))
-    );
-
-    const allArchiveGnezdilova = (dfArchive.data || []).filter(row => 
-      row['Ответственный'] && 
-      (row['Ответственный'].toString().includes('Гнездилова') || 
-       row['Ответственный'].toString().includes('Мария'))
-    );
-
-    console.log(`Всего задач Гнездиловой в Грид: ${allGridGnezdilova.length}`);
-    allGridGnezdilova.forEach((task, i) => {
-      console.log(`  Грид ${i+1}: "${task['Название']}"`);
-      console.log(`    - Оценка: ${task['Оценка работы']} (тип: ${typeof task['Оценка работы']})`);
-      console.log(`    - Дата выполнения: ${task['Выполнена']}`);
-    });
-
-    console.log(`Всего задач Гнездиловой в Архив: ${allArchiveGnezdilova.length}`);
-    allArchiveGnezdilova.forEach((task, i) => {
-      console.log(`  Архив ${i+1}: "${task['Название']}"`);
-      console.log(`    - Оценка: ${task['Оценка работы']} (тип: ${typeof task['Оценка работы']})`);
-      console.log(`    - Дата выполнения: ${task['Выполнена']}`);
-    });
-
     // === 1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА ===
     const allData = [...(dfGrid.data || []), ...(dfArchive.data || [])];
-    console.log(`\nОбъединено строк: ${allData.length} (Грид: ${dfGrid.data?.length || 0}, Архив: ${dfArchive.data?.length || 0})`);
+    console.log(`Объединено строк: ${allData.length} (Грид: ${dfGrid.data?.length || 0}, Архив: ${dfArchive.data?.length || 0})`);
 
     // === 2. ПРЕОБРАЗОВАНИЕ ДАТ И ОБРАБОТКА ОТВЕТСТВЕННЫХ ===
     const processedData = allData.map(row => {
@@ -227,7 +197,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     const gnezdilovaTasks = completedDesign.filter(row => 
       row['Ответственный'] && 
       (row['Ответственный'].toString().includes('Гнездилова') || 
-       row['Ответственный'].toString().includes('Мария'))
+       row['Ответentional'].toString().includes('Мария'))
     );
     console.log(`Найдено задач у Гнездиловой: ${gnezdilovaTasks.length}`);
     
@@ -373,8 +343,55 @@ app.post('/api/upload', upload.fields([
       throw new Error('Один из листов Excel пуст или не найден');
     }
 
-    const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1, defval: null });
+    // ДЕТАЛЬНАЯ ОТЛАДКА АРХИВА
+    console.log("🔍 ДЕТАЛЬНАЯ ОТЛАДКА ЧТЕНИЯ АРХИВА:");
+    
+    // Читаем все строки архива
     const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1, defval: null });
+    console.log(`Всего строк в архиве: ${allArchiveRows.length}`);
+    
+    // Ищем заголовки
+    let archiveHeaderRowIndex = 0;
+    let archiveHeaders = [];
+    
+    for (let i = 0; i < allArchiveRows.length; i++) {
+      const row = allArchiveRows[i];
+      if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
+        if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
+          archiveHeaderRowIndex = i;
+          archiveHeaders = allArchiveRows[i];
+          break;
+        }
+      }
+    }
+    
+    console.log("Заголовки архива:", archiveHeaders);
+    
+    // Ищем Гнездилову в сырых данных архива
+    const respIndex = archiveHeaders.findIndex(h => h && h.toString().includes('Ответственный'));
+    const scoreIndex = archiveHeaders.findIndex(h => h && h.toString().includes('Оценка работы'));
+    const nameIndex = archiveHeaders.findIndex(h => h && h.toString().includes('Название'));
+    
+    console.log(`Индексы: Ответственный=${respIndex}, Оценка=${scoreIndex}, Название=${nameIndex}`);
+    
+    // Проверяем задачи Гнездиловой в сырых данных
+    console.log("🔍 ЗАДАЧИ ГНЕЗДИЛОВОЙ В СЫРЫХ ДАННЫХ АРХИВА:");
+    let gnezdilovaCount = 0;
+    
+    for (let i = archiveHeaderRowIndex + 1; i < allArchiveRows.length; i++) {
+      const row = allArchiveRows[i];
+      if (row[respIndex] && (row[respIndex].toString().includes('Гнездилова') || row[respIndex].toString().includes('Мария'))) {
+        gnezdilovaCount++;
+        console.log(`Задача ${gnezdilovaCount}: "${row[nameIndex]}"`);
+        console.log(`  - Ответственный: ${row[respIndex]}`);
+        console.log(`  - Оценка: ${row[scoreIndex]} (тип: ${typeof row[scoreIndex]})`);
+      }
+    }
+    
+    console.log(`Всего задач Гнездиловой в архиве: ${gnezdilovaCount}`);
+
+    const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1, defval: null });
+    const allArchiveRowsProcessed = xlsx.utils.sheet_to_json(archiveSheet, { header: 1, defval: null });
 
     // Обработка "Грид"
     let gridColumns = [];
@@ -411,10 +428,10 @@ app.post('/api/upload', upload.fields([
     let archiveColumns = [];
     let archiveData = [];
 
-    if (allArchiveRows.length > 0) {
+    if (allArchiveRowsProcessed.length > 0) {
       let headerRowIndex = 0;
-      for (let i = 0; i < allArchiveRows.length; i++) {
-        const row = allArchiveRows[i];
+      for (let i = 0; i < allArchiveRowsProcessed.length; i++) {
+        const row = allArchiveRowsProcessed[i];
         if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
           if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
             headerRowIndex = i;
@@ -423,9 +440,9 @@ app.post('/api/upload', upload.fields([
         }
       }
 
-      archiveColumns = allArchiveRows[headerRowIndex];
-      if (allArchiveRows.length > headerRowIndex + 1) {
-        archiveData = allArchiveRows.slice(headerRowIndex + 1).map(row => {
+      archiveColumns = allArchiveRowsProcessed[headerRowIndex];
+      if (allArchiveRowsProcessed.length > headerRowIndex + 1) {
+        archiveData = allArchiveRowsProcessed.slice(headerRowIndex + 1).map(row => {
           const obj = {};
           archiveColumns.forEach((col, i) => {
             if (col && typeof col === 'string') {
