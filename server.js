@@ -70,60 +70,6 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === НАДЕЖНАЯ ФУНКЦИЯ ПРЕОБРАЗОВАНИЯ EXCEL ДАТЫ ===
-function excelDateToJSDate(serial) {
-  if (serial == null || serial === '') return null;
-  if (serial instanceof Date) return serial;
-
-  if (typeof serial === 'string') {
-    const s = serial.trim();
-
-    // Поддержка DD.MM.YYYY HH:MM:SS
-    const datetimeMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/);
-    if (datetimeMatch) {
-      const [, day, month, year, hour, minute, second] = datetimeMatch;
-      const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${(second || '00').padStart(2, '0')}`;
-      const date = new Date(iso);
-      if (!isNaN(date.getTime())) return date;
-    }
-
-    // Поддержка DD.MM.YYYY
-    const dateMatch = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-    if (dateMatch) {
-      const [, day, month, year] = dateMatch;
-      const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-      const date = new Date(iso);
-      if (!isNaN(date.getTime())) return date;
-    }
-
-    // Поддержка MM/DD/YYYY и MM/DD/YY (для совместимости с Excel)
-    const usDateMatch = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-    if (usDateMatch) {
-      let [, month, day, year] = usDateMatch;
-      if (year.length === 2) {
-        year = parseInt(year) >= 70 ? '19' + year : '20' + year;
-      }
-      const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
-      const date = new Date(iso);
-      if (!isNaN(date.getTime())) return date;
-    }
-
-    // Fallback: стандартный парсинг
-    const fallback = new Date(s);
-    if (!isNaN(fallback.getTime())) return fallback;
-    return null;
-  }
-
-  if (typeof serial === 'number') {
-    const excelEpochWithError = new Date(1899, 11, 30);
-    const utcDays = Math.floor(serial - 1);
-    const ms = utcDays * 24 * 60 * 60 * 1000;
-    return new Date(excelEpochWithError.getTime() + ms);
-  }
-
-  return null;
-}
-
 // === ГЕНЕРАЦИЯ ОТЧЕТА ===
 function generateReport(dfGrid, dfArchive, monthName, year) {
   console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
@@ -132,24 +78,22 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
   // Объединяем данные из обоих файлов
   const allData = [...(dfGrid.data || []), ...(dfArchive.data || [])];
 
-  // Преобразуем даты и нормализуем ответственных
+  // Нормализуем ответственных
   const processedData = allData.map(row => {
-    row['Дата создания'] = excelDateToJSDate(row['Дата создания']);
-    row['Выполнена'] = excelDateToJSDate(row['Выполнена']);
     if (!row['Ответственный'] || row['Ответственный'].toString().trim() === '') {
       row['Ответственный'] = 'Неизвестно';
     }
     return row;
   });
 
-  // Определяем период отчёта
+  // Определяем период
   const monthObj = moment(monthName, 'MMMM', true);
   if (!monthObj.isValid()) throw new Error("Неверный месяц");
   const monthNum = monthObj.month() + 1;
   const monthPeriod = `${year}-${monthNum.toString().padStart(2, '0')}`;
   console.log(`Фильтруем по периоду: ${monthPeriod}`);
 
-  // Классификация ответственных
+  // Классификация
   const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
   const isTextAuthor = (name) => textAuthors.some(ta => name.includes(ta));
   const classify = (name) => {
@@ -170,13 +114,13 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     const resp = row['Ответственный'];
     const type = classify(resp);
 
-    // Поступившие (из обоих файлов)
+    // Поступившие (по дате создания)
     const created = row['Дата создания'];
     if (created && moment(created).isValid() && moment(created).format('YYYY-MM') === monthPeriod) {
       stats.created[type]++;
     }
 
-    // Выполненные (из обоих файлов)
+    // Выполненные (по дате выполнения)
     const completed = row['Выполнена'];
     if (completed && moment(completed).isValid() && moment(completed).format('YYYY-MM') === monthPeriod) {
       stats.completed[type]++;
@@ -202,7 +146,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
   console.log(`Текстовые — создано: ${stats.created.text}, выполнено: ${stats.completed.text}`);
   console.log(`Без ответственного — создано: ${stats.created.unknown}, выполнено: ${stats.completed.unknown}`);
 
-  // Формируем отчёт по выполненным
+  // Формируем отчёт
   let report = Object.keys(reportMap).map(resp => ({
     Ответственный: resp,
     Задачи: reportMap[resp].Задачи,
@@ -278,8 +222,9 @@ app.post('/api/upload', upload.fields([
       throw new Error('Один из листов Excel пуст или не найден');
     }
 
-    const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1, defval: null });
-    const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1, defval: null });
+    // 🔥 КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: cellDates: true
+    const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1, defval: null, cellDates: true });
+    const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1, defval: null, cellDates: true });
 
     // Обработка "Грид"
     let gridColumns = [];
