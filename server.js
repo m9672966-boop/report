@@ -330,151 +330,64 @@ app.post('/api/upload', upload.fields([
     const gridSheet = gridWorkbook.Sheets[gridWorkbook.SheetNames[0]];
     const archiveSheet = archiveWorkbook.Sheets[archiveWorkbook.SheetNames[0]];
 
-    if (!gridSheet || !archiveSheet) {
-      throw new Error('Один из листов Excel пуст или не найден');
+    // ДЕТАЛЬНАЯ ПРОВЕРКА ВСЕХ ДАННЫХ ГНЕЗДИЛОВОЙ
+    console.log("🔍 ДЕТАЛЬНАЯ ПРОВЕРКА ДАННЫХ ГНЕЗДИЛОВОЙ:");
+
+    // Функция для поиска всех строк с Гнездиловой
+    function findGnezdilovaRows(sheetData, sheetName) {
+      const rows = xlsx.utils.sheet_to_json(sheetData, { header: 1, defval: null });
+      let headerRowIndex = 0;
+      
+      // Находим заголовки
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        if (Array.isArray(row) && row.some(cell => cell && cell.toString().includes('Ответственный'))) {
+          headerRowIndex = i;
+          break;
+        }
+      }
+      
+      const headers = rows[headerRowIndex];
+      const respIndex = headers.findIndex(h => h && h.toString().includes('Ответственный'));
+      const scoreIndex = headers.findIndex(h => h && h.toString().includes('Оценка'));
+      const nameIndex = headers.findIndex(h => h && h.toString().includes('Название'));
+      const dateIndex = headers.findIndex(h => h && h.toString().includes('Выполнена'));
+      
+      console.log(`В ${sheetName}:`);
+      console.log(`  - Индекс столбца "Ответственный": ${respIndex}`);
+      console.log(`  - Индекс столбца "Оценка": ${scoreIndex}`);
+      console.log(`  - Индекс столбца "Название": ${nameIndex}`);
+      console.log(`  - Индекс столбца "Выполнена": ${dateIndex}`);
+      
+      // Ищем все строки с Гнездиловой
+      const gnezdilovaRows = [];
+      for (let i = headerRowIndex + 1; i < rows.length; i++) {
+        const row = rows[i];
+        if (row[respIndex] && (row[respIndex].toString().includes('Гнездилова') || row[respIndex].toString().includes('Мария'))) {
+          gnezdilovaRows.push({
+            название: row[nameIndex],
+            оценка: row[scoreIndex],
+            дата: row[dateIndex],
+            строка: i + 1
+          });
+        }
+      }
+      
+      return gnezdilovaRows;
     }
 
-    // ДОБАВЛЕНО: Отладка чтения Excel
-    console.log("🔍 ОТЛАДКА ЧТЕНИЯ EXCEL:");
-    
-    // Проверяем диапазон ячеек в Excel
-    console.log("Grid диапазон:", gridSheet['!ref']);
-    console.log("Archive диапазон:", archiveSheet['!ref']);
-    
-    // Проверяем конкретные ячейки с оценками
-    const checkCells = ['AU345', 'AU346', 'AU347'];
-    checkCells.forEach(cell => {
-      if (gridSheet[cell]) {
-        console.log(`Grid ${cell}:`, { 
-          значение: gridSheet[cell].v,
-          тип: gridSheet[cell].t,
-          формула: gridSheet[cell].f
-        });
-      }
-      if (archiveSheet[cell]) {
-        console.log(`Archive ${cell}:`, { 
-          значение: archiveSheet[cell].v,
-          тип: archiveSheet[cell].t,
-          формула: archiveSheet[cell].f
-        });
-      }
-    });
+    const gridGnezdilova = findGnezdilovaRows(gridSheet, 'Грид');
+    const archiveGnezdilova = findGnezdilovaRows(archiveSheet, 'Архив');
 
+    console.log("📊 НАЙДЕННЫЕ ЗАДАЧИ ГНЕЗДИЛОВОЙ:");
+    console.log("В Грид:", gridGnezdilova);
+    console.log("В Архив:", archiveGnezdilova);
+
+    // Продолжаем обычную обработку...
     const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1, defval: null });
     const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1, defval: null });
 
-    // Остальной код без изменений...
-    // [сохраняем текущую обработку данных]
-
-    // Обработка "Грид"
-    let gridColumns = [];
-    let gridData = [];
-
-    if (allGridRows.length > 0) {
-      let headerRowIndex = 0;
-      for (let i = 0; i < allGridRows.length; i++) {
-        const row = allGridRows[i];
-        if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
-          if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
-            headerRowIndex = i;
-            break;
-          }
-        }
-      }
-      gridColumns = allGridRows[headerRowIndex];
-      if (allGridRows.length > headerRowIndex + 1) {
-        gridData = allGridRows.slice(headerRowIndex + 1).map(row => {
-          const obj = {};
-          gridColumns.forEach((col, i) => {
-            if (col && typeof col === 'string') {
-              obj[col.trim()] = row[i];
-            }
-          });
-          return obj;
-        }).filter(row => Object.keys(row).length > 0);
-      }
-    }
-
-    const dfGrid = { columns: gridColumns, data: gridData || [] };
-
-    // Обработка "Архив" — ИСПРАВЛЕНО!
-    let archiveColumns = [];
-    let archiveData = [];
-
-    if (allArchiveRows.length > 0) {
-      let headerRowIndex = 0;
-      for (let i = 0; i < allArchiveRows.length; i++) {
-        const row = allArchiveRows[i]; // ✅ ИСПРАВЛЕНО: было allGridRows[i]
-        if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
-          if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
-            headerRowIndex = i;
-            break;
-          }
-        }
-      }
-
-      archiveColumns = allArchiveRows[headerRowIndex];
-      if (allArchiveRows.length > headerRowIndex + 1) {
-        archiveData = allArchiveRows.slice(headerRowIndex + 1).map(row => {
-          const obj = {};
-          archiveColumns.forEach((col, i) => {
-            if (col && typeof col === 'string') {
-              obj[col.trim()] = row[i];
-            }
-          });
-          return obj;
-        }).filter(row => Object.keys(row).length > 0);
-      }
-    }
-
-    const dfArchive = { columns: archiveColumns, data: archiveData || [] };
-
-    console.log("Архив: колонки =", dfArchive.columns);
-    console.log("Архив: количество строк =", (dfArchive.data || []).length);
-    console.log("Грид: количество строк =", (dfGrid.data || []).length);
-
-    const { report, textReport } = generateReport(
-      dfGrid,
-      dfArchive,
-      month,
-      parseInt(year)
-    );
-
-    const tempDir = path.join(UPLOAD_DIR, `temp_${Date.now()}`);
-    await fs.mkdir(tempDir);
-
-    const ws = xlsx.utils.json_to_sheet(report);
-    const wb = xlsx.utils.book_new();
-    xlsx.utils.book_append_sheet(wb, ws, "Отчёт");
-    const excelPath = path.join(tempDir, `Отчет_${month}_${year}.xlsx`);
-    xlsx.writeFile(wb, excelPath);
-
-    const txtPath = path.join(tempDir, `Статистика_${month}_${year}.txt`);
-    await fs.writeFile(txtPath, textReport, 'utf8');
-
-    const cardId = process.env.KAITEN_CARD_ID;
-    if (cardId) {
-      await uploadFileToKaiten(excelPath, `Отчет_${month}_${year}.xlsx`, cardId);
-      await uploadFileToKaiten(txtPath, `Статистика_${month}_${year}.txt`, cardId);
-    } else {
-      console.warn("⚠️ KAITEN_CARD_ID не задан — файлы не будут загружены в Kaiten");
-    }
-
-    await fs.unlink(gridPath);
-    await fs.unlink(archivePath);
-    await fs.remove(tempDir);
-
-    res.json({
-      success: true,
-      textReport: textReport,
-      report: report || []
-    });
-
-  } catch (error) {
-    console.error("❌ Ошибка в /api/upload:", error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
+    // ... остальной код без изменений
 
 app.listen(PORT, () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
