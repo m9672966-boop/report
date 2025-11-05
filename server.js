@@ -104,9 +104,39 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
     console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
+    // === ДЕТАЛЬНАЯ ПРОВЕРКА ВСЕХ ДАННЫХ ГНЕЗДИЛОВОЙ ===
+    console.log("\n🔍 ДЕТАЛЬНАЯ ПРОВЕРКА ДАННЫХ ГНЕЗДИЛОВОЙ ИЗ ВСЕХ ФАЙЛОВ:");
+
+    // Проверяем все задачи Гнездиловой до обработки
+    const allGridGnezdilova = (dfGrid.data || []).filter(row => 
+      row['Ответственный'] && 
+      (row['Ответственный'].toString().includes('Гнездилова') || 
+       row['Ответственный'].toString().includes('Мария'))
+    );
+
+    const allArchiveGnezdilova = (dfArchive.data || []).filter(row => 
+      row['Ответственный'] && 
+      (row['Ответственный'].toString().includes('Гнездилова') || 
+       row['Ответственный'].toString().includes('Мария'))
+    );
+
+    console.log(`Всего задач Гнездиловой в Грид: ${allGridGnezdilova.length}`);
+    allGridGnezdilova.forEach((task, i) => {
+      console.log(`  Грид ${i+1}: "${task['Название']}"`);
+      console.log(`    - Оценка: ${task['Оценка работы']} (тип: ${typeof task['Оценка работы']})`);
+      console.log(`    - Дата выполнения: ${task['Выполнена']}`);
+    });
+
+    console.log(`Всего задач Гнездиловой в Архив: ${allArchiveGnezdilova.length}`);
+    allArchiveGnezdilova.forEach((task, i) => {
+      console.log(`  Архив ${i+1}: "${task['Название']}"`);
+      console.log(`    - Оценка: ${task['Оценка работы']} (тип: ${typeof task['Оценка работы']})`);
+      console.log(`    - Дата выполнения: ${task['Выполнена']}`);
+    });
+
     // === 1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА ===
     const allData = [...(dfGrid.data || []), ...(dfArchive.data || [])];
-    console.log(`Объединено строк: ${allData.length} (Грид: ${dfGrid.data?.length || 0}, Архив: ${dfArchive.data?.length || 0})`);
+    console.log(`\nОбъединено строк: ${allData.length} (Грид: ${dfGrid.data?.length || 0}, Архив: ${dfArchive.data?.length || 0})`);
 
     // === 2. ПРЕОБРАЗОВАНИЕ ДАТ И ОБРАБОТКА ОТВЕТСТВЕННЫХ ===
     const processedData = allData.map(row => {
@@ -131,11 +161,9 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
         
         const score = parseFloat(scoreStr);
         
-        // ДЕБАГ-логирование
-        if (!isNaN(score)) {
-          console.log(`✅ Преобразована оценка: "${row['Оценка работы']}" -> ${score}`);
-        } else {
-          console.log(`❌ Не удалось преобразовать: "${row['Оценка работы']}"`);
+        // ДЕБАГ-логирование для Гнездиловой
+        if ((row['Ответственный'].toString().includes('Гнездилова') || row['Ответственный'].toString().includes('Мария')) && !isNaN(score)) {
+          console.log(`✅ Гнездилова - Преобразована оценка: "${row['Оценка работы']}" -> ${score}`);
         }
         
         row['Оценка работы'] = isNaN(score) ? null : score;
@@ -196,7 +224,11 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
 
     // ДЕТАЛЬНАЯ ОТЛАДКА ОЦЕНОК ГНЕЗДИЛОВОЙ
     console.log("\n🔍 ДЕТАЛЬНАЯ ОТЛАДКА ОЦЕНОК ГНЕЗДИЛОВОЙ:");
-    const gnezdilovaTasks = completedDesign.filter(row => row['Ответственный'] === 'Мария Гнездилова');
+    const gnezdilovaTasks = completedDesign.filter(row => 
+      row['Ответственный'] && 
+      (row['Ответственный'].toString().includes('Гнездилова') || 
+       row['Ответственный'].toString().includes('Мария'))
+    );
     console.log(`Найдено задач у Гнездиловой: ${gnezdilovaTasks.length}`);
     
     gnezdilovaTasks.forEach((task, index) => {
@@ -236,7 +268,10 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
         if (rawScore !== null && rawScore !== undefined && rawScore !== '') {
           const score = parseFloat(rawScore);
           if (!isNaN(score)) {
-            console.log(`✅ Учтена оценка для ${resp}: ${rawScore} -> ${score}`);
+            // Детальный лог для Гнездиловой
+            if (resp.includes('Гнездилова') || resp.includes('Мария')) {
+              console.log(`✅ ГНЕЗДИЛОВА - Учтена оценка: ${rawScore} -> ${score}`);
+            }
             reportMap[resp].Оценка += score;
             reportMap[resp].count += 1;
           } else {
@@ -249,7 +284,11 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       console.log("\n📈 СТАТИСТИКА ПО ОЦЕНКАМ:");
       Object.keys(reportMap).forEach(resp => {
         const data = reportMap[resp];
-        console.log(`${resp}: оценки=${data.Оценка}, кол-во=${data.count}, средняя=${data.count > 0 ? (data.Оценка / data.count).toFixed(2) : 0}`);
+        if (resp.includes('Гнездилова') || resp.includes('Мария')) {
+          console.log(`🎯 ГНЕЗДИЛОВА - оценки=${data.Оценка}, кол-во=${data.count}, средняя=${data.count > 0 ? (data.Оценка / data.count).toFixed(2) : 0}`);
+        } else {
+          console.log(`${resp}: оценки=${data.Оценка}, кол-во=${data.count}, средняя=${data.count > 0 ? (data.Оценка / data.count).toFixed(2) : 0}`);
+        }
       });
 
       report = Object.keys(reportMap).map(resp => ({
@@ -299,7 +338,6 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     throw error;
   }
 }
-
 // === МАРШРУТЫ ===
 
 app.get('/', (req, res) => {
