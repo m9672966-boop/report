@@ -73,26 +73,73 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
 
 // === ПАРСЕР ДАТЫ ===
 function parseDate(value) {
-  if (value == null || value === '') return null;
-  if (value instanceof Date && !isNaN(value.getTime())) return value;
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    const dateFromStr = new Date(trimmed);
-    if (!isNaN(dateFromStr.getTime())) return dateFromStr;
-
-    const num = parseFloat(trimmed.replace(/,/g, '.'));
-    if (!isNaN(num)) {
-      const epoch = new Date(1899, 11, 30);
-      return new Date(epoch.getTime() + (num - 1) * 24 * 60 * 60 * 1000);
-    }
+  if (value == null || value === '' || (typeof value === 'string' && value.trim() === '')) {
     return null;
   }
 
+  // Если уже Date — проверяем валидность
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value;
+  }
+
+  // Пробуем через moment с явными форматами
+  const formats = [
+    'DD.MM.YYYY',
+    'D.MM.YYYY',
+    'DD.M.YYYY',
+    'D.M.YYYY',
+    'DD/MM/YYYY',
+    'D/MM/YYYY',
+    'DD-MM-YYYY',
+    'D-MM-YYYY',
+    'YYYY-MM-DD',
+    'MM/DD/YYYY',
+    'M/D/YYYY',
+    'DD.MM.YY',   // на случай двухзначного года
+    'D.M.YY'
+  ];
+
+  let parsedByMoment = null;
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    for (const fmt of formats) {
+      const m = moment(trimmed, fmt, true); // strict parsing
+      if (m.isValid()) {
+        parsedByMoment = m.toDate();
+        break;
+      }
+    }
+  }
+
+  if (parsedByMoment) {
+    return parsedByMoment;
+  }
+
+  // Если число — предполагаем Excel serial date (начиная с 1899-12-30)
+  let numValue = null;
   if (typeof value === 'number') {
-    const epoch = new Date(1899, 11, 30);
-    return new Date(epoch.getTime() + (value - 1) * 24 * 60 * 60 * 1000);
+    numValue = value;
+  } else if (typeof value === 'string') {
+    const cleaned = value.replace(/,/g, '.').trim();
+    const asFloat = parseFloat(cleaned);
+    if (!isNaN(asFloat) && cleaned === asFloat.toString()) {
+      numValue = asFloat;
+    }
+  }
+
+  if (numValue !== null && !isNaN(numValue)) {
+    // Excel считает 1900 год високосным (ложно), но для совместимости оставляем логику
+    const epoch = new Date(1899, 11, 30); // месяц 11 = декабрь
+    const dateFromExcel = new Date(epoch.getTime() + (numValue - 1) * 24 * 60 * 60 * 1000);
+    if (!isNaN(dateFromExcel.getTime())) {
+      return dateFromExcel;
+    }
+  }
+
+  // Последняя попытка: стандартный new Date()
+  const fallback = new Date(value);
+  if (fallback instanceof Date && !isNaN(fallback.getTime())) {
+    return fallback;
   }
 
   return null;
