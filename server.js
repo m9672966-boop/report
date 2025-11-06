@@ -11,7 +11,7 @@ const FormData = require('form-data');
 const fetch = require('node-fetch');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // Render использует 10000 по умолчанию
 
 app.use(cors());
 app.use(express.static('.'));
@@ -75,18 +75,28 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
   console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
   console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
-  // Объединяем данные из обоих файлов
-  const allData = [...(dfGrid.data || []), ...(dfArchive.data || [])];
+  // Данные из Грида — только для поступивших
+  const createdData = [...(dfGrid.data || [])];
 
-  // Нормализуем ответственных
-  const processedData = allData.map(row => {
+  // Данные из Архива — только для выполненных и статистики
+  const completedData = [...(dfArchive.data || [])];
+
+  // Нормализация ответственных
+  const processedCreated = createdData.map(row => {
     if (!row['Ответственный'] || row['Ответственный'].toString().trim() === '') {
       row['Ответственный'] = 'Неизвестно';
     }
     return row;
   });
 
-  // Определяем период
+  const processedCompleted = completedData.map(row => {
+    if (!row['Ответственный'] || row['Ответственный'].toString().trim() === '') {
+      row['Ответственный'] = 'Неизвестно';
+    }
+    return row;
+  });
+
+  // Период отчёта
   const monthObj = moment(monthName, 'MMMM', true);
   if (!monthObj.isValid()) throw new Error("Неверный месяц");
   const monthNum = monthObj.month() + 1;
@@ -110,18 +120,21 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
 
   const reportMap = {};
 
-  for (const row of processedData) {
+  // --- Поступившие (только из Грида) ---
+  for (const row of processedCreated) {
+    const created = row['Дата создания'];
     const resp = row['Ответственный'];
     const type = classify(resp);
-
-    // Поступившие (по дате создания)
-    const created = row['Дата создания'];
     if (created && moment(created).isValid() && moment(created).format('YYYY-MM') === monthPeriod) {
       stats.created[type]++;
     }
+  }
 
-    // Выполненные (по дате выполнения)
+  // --- Выполненные (только из Архива) ---
+  for (const row of processedCompleted) {
     const completed = row['Выполнена'];
+    const resp = row['Ответственный'];
+    const type = classify(resp);
     if (completed && moment(completed).isValid() && moment(completed).format('YYYY-MM') === monthPeriod) {
       stats.completed[type]++;
 
@@ -146,7 +159,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
   console.log(`Текстовые — создано: ${stats.created.text}, выполнено: ${stats.completed.text}`);
   console.log(`Без ответственного — создано: ${stats.created.unknown}, выполнено: ${stats.completed.unknown}`);
 
-  // Формируем отчёт
+  // Формирование отчёта
   let report = Object.keys(reportMap).map(resp => ({
     Ответственный: resp,
     Задачи: reportMap[resp].Задачи,
@@ -222,7 +235,7 @@ app.post('/api/upload', upload.fields([
       throw new Error('Один из листов Excel пуст или не найден');
     }
 
-    // 🔥 КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: cellDates: true
+    // 🔥 КЛЮЧЕВОЕ: cellDates: true для корректного чтения дат
     const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1, defval: null, cellDates: true });
     const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1, defval: null, cellDates: true });
 
@@ -334,6 +347,7 @@ app.post('/api/upload', upload.fields([
   }
 });
 
-app.listen(PORT, () => {
+// 🔥 ОБЯЗАТЕЛЬНО: бинд к 0.0.0.0 для Render
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
 });
