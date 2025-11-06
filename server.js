@@ -11,7 +11,7 @@ const FormData = require('form-data');
 const fetch = require('node-fetch');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000; // Render использует 10000
 
 app.use(cors());
 app.use(express.static('.'));
@@ -47,6 +47,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
       knownLength: stats.size
     });
 
+    // 🔥 Исправлен URL: убраны пробелы
     const response = await fetch(`https://panna.kaiten.ru/api/latest/cards/${cardId}/files`, {
       method: 'POST',
       headers: {
@@ -74,8 +75,6 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
 function excelDateToJSDate(serial) {
   if (serial == null || serial === '') return null;
   if (serial instanceof Date) return serial;
-
-  // Если строка — попробовать парсить как дату
   if (typeof serial === 'string') {
     const parsed = parseFloat(serial);
     if (!isNaN(parsed)) {
@@ -86,15 +85,12 @@ function excelDateToJSDate(serial) {
       return null;
     }
   }
-
-  // Если число — обработать как Excel serial date
   if (typeof serial === 'number') {
-    const excelEpochWithError = new Date(1899, 11, 30); // Коррекция Excel bug
+    const excelEpochWithError = new Date(1899, 11, 30);
     const utcDays = Math.floor(serial - 1);
-    const milliseconds = utcDays * 24 * 60 * 60 * 1000;
-    return new Date(excelEpochWithError.getTime() + milliseconds);
+    const ms = utcDays * 24 * 60 * 60 * 1000;
+    return new Date(excelEpochWithError.getTime() + ms);
   }
-
   return null;
 }
 
@@ -104,54 +100,55 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
     console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
-    // === 1. ОБЪЕДИНЕНИЕ ДАННЫХ ИЗ ГРИДА И АРХИВА ===
+    // === 1. ОБЪЕДИНЕНИЕ ДАННЫХ ===
     const allData = [...(dfGrid.data || []), ...(dfArchive.data || [])];
     console.log(`Объединено строк: ${allData.length} (Грид: ${dfGrid.data?.length || 0}, Архив: ${dfArchive.data?.length || 0})`);
 
-    // === 2. ПРЕОБРАЗОВАНИЕ ДАТ И ОБРАБОТКА ОТВЕТСТВЕННЫХ ===
-    function excelDateToJSDate(serial) {
-      if (serial == null || serial === '') return null;
-      if (serial instanceof Date) return serial;
-      if (typeof serial === 'string') {
-        const parsed = parseFloat(serial);
-        if (!isNaN(parsed)) serial = parsed;
-        else {
-          const d = new Date(serial);
-          return isNaN(d.getTime()) ? null : d;
+    // === 2. ЛОГИРОВАНИЕ ЗАГОЛОВКОВ ===
+    console.log("\n🔍 Заголовки из grid.xlsx:", dfGrid.columns);
+    console.log("🔍 Заголовки из archive.xlsx:", dfArchive.columns);
+
+    // === 3. ПРЕОБРАЗОВАНИЕ ДАТ ===
+    const processedData = allData.map(row => {
+      const rawCreated = row['Дата создания'];
+      const rawCompleted = row['Выполнена'];
+      const created = excelDateToJSDate(rawCreated);
+      const completed = excelDateToJSDate(rawCompleted);
+
+      // Логирование для задач Гнездиловой
+      if (row['Ответственный']?.includes('Гнездилова')) {
+        console.log(`\n🎯 Найдена задача Гнездиловой:`);
+        console.log(`  Название: ${row['Название']}`);
+        console.log(`  Сырая 'Дата создания': ${JSON.stringify(rawCreated)}`);
+        console.log(`  Сырая 'Выполнена': ${JSON.stringify(rawCompleted)}`);
+        console.log(`  Обработанная 'Выполнена': ${completed}`);
+        if (completed && moment(completed).isValid()) {
+          console.log(`  Форматированная дата: ${moment(completed).format('YYYY-MM')}`);
         }
       }
-      if (typeof serial === 'number') {
-        const excelEpochWithError = new Date(1899, 11, 30);
-        const utcDays = Math.floor(serial - 1);
-        const ms = utcDays * 24 * 60 * 60 * 1000;
-        return new Date(excelEpochWithError.getTime() + ms);
-      }
-      return null;
-    }
 
-    const processedData = allData.map(row => {
-      row['Дата создания'] = excelDateToJSDate(row['Дата создания']);
-      row['Выполнена'] = excelDateToJSDate(row['Выполнена']);
+      row['Дата создания'] = created;
+      row['Выполнена'] = completed;
       if (!row['Ответственный'] || row['Ответственный'].toString().trim() === '') {
         row['Ответственный'] = 'Неизвестно';
       }
       return row;
     });
 
-    // === 3. ОПРЕДЕЛЕНИЕ ПЕРИОДА ===
+    // === 4. ОПРЕДЕЛЕНИЕ ПЕРИОДА ===
     const monthObj = moment(monthName, 'MMMM', true);
     if (!monthObj.isValid()) throw new Error("Неверный месяц");
     const monthNum = monthObj.month() + 1;
     const monthPeriod = `${year}-${monthNum.toString().padStart(2, '0')}`;
-    console.log(`Фильтруем по периоду: ${monthPeriod}`);
+    console.log(`\n📅 Фильтруем по периоду: ${monthPeriod}`);
 
-    // === 4. КЛАССИФИКАЦИЯ ОТВЕТСТВЕННЫХ ===
+    // === 5. КЛАССИФИКАЦИЯ ===
     const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
     const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
     const isDesigner = (row) => !isTextAuthor(row) && row['Ответственный'] !== 'Неизвестно';
     const isUnknown = (row) => row['Ответственный'] === 'Неизвестно';
 
-    // === 5. ПОДСЧЁТ СОЗДАННЫХ И ВЫПОЛНЕННЫХ ЗАДАЧ ===
+    // === 6. ПОДСЧЁТ ===
     const createdDesign = [];
     const completedDesign = [];
     const createdText = [];
@@ -160,24 +157,18 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     const completedUnknown = [];
 
     for (const row of processedData) {
-      // Дата создания
       const created = row['Дата создания'];
-      if (created && moment(created).isValid()) {
-        if (moment(created).format('YYYY-MM') === monthPeriod) {
-          if (isDesigner(row)) createdDesign.push(row);
-          else if (isTextAuthor(row)) createdText.push(row);
-          else if (isUnknown(row)) createdUnknown.push(row);
-        }
+      if (created && moment(created).isValid() && moment(created).format('YYYY-MM') === monthPeriod) {
+        if (isDesigner(row)) createdDesign.push(row);
+        else if (isTextAuthor(row)) createdText.push(row);
+        else if (isUnknown(row)) createdUnknown.push(row);
       }
 
-      // Дата выполнения
       const completed = row['Выполнена'];
-      if (completed && moment(completed).isValid()) {
-        if (moment(completed).format('YYYY-MM') === monthPeriod) {
-          if (isDesigner(row)) completedDesign.push(row);
-          else if (isTextAuthor(row)) completedText.push(row);
-          else if (isUnknown(row)) completedUnknown.push(row);
-        }
+      if (completed && moment(completed).isValid() && moment(completed).format('YYYY-MM') === monthPeriod) {
+        if (isDesigner(row)) completedDesign.push(row);
+        else if (isTextAuthor(row)) completedText.push(row);
+        else if (isUnknown(row)) completedUnknown.push(row);
       }
     }
 
@@ -186,7 +177,7 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log(`Текстовые — создано: ${createdText.length}, выполнено: ${completedText.length}`);
     console.log(`Без ответственного — создано: ${createdUnknown.length}, выполнено: ${completedUnknown.length}`);
 
-    // === 6. ФОРМИРОВАНИЕ ОТЧЁТА ПО ВЫПОЛНЕННЫМ ===
+    // === 7. ФОРМИРОВАНИЕ ОТЧЁТА ===
     const allCompleted = [...completedDesign, ...completedUnknown];
     let report = [];
 
@@ -218,7 +209,6 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       }));
     }
 
-    // Итоговая строка
     if (report.length > 0) {
       const totalRow = {
         Ответственный: 'ИТОГО',
@@ -230,7 +220,6 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       report.push(totalRow);
     }
 
-    // === 7. ТЕКСТОВЫЙ ОТЧЁТ ===
     const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
 
 Дизайнеры:
@@ -297,7 +286,6 @@ app.post('/api/upload', upload.fields([
     // Обработка "Грид"
     let gridColumns = [];
     let gridData = [];
-
     if (allGridRows.length > 0) {
       let headerRowIndex = 0;
       for (let i = 0; i < allGridRows.length; i++) {
@@ -309,30 +297,28 @@ app.post('/api/upload', upload.fields([
           }
         }
       }
-      gridColumns = allGridRows[headerRowIndex];
+      gridColumns = allGridRows[headerRowIndex].map(col => typeof col === 'string' ? col.trim() : col);
       if (allGridRows.length > headerRowIndex + 1) {
         gridData = allGridRows.slice(headerRowIndex + 1).map(row => {
           const obj = {};
           gridColumns.forEach((col, i) => {
             if (col && typeof col === 'string') {
-              obj[col.trim()] = row[i];
+              obj[col] = row[i];
             }
           });
           return obj;
         }).filter(row => Object.keys(row).length > 0);
       }
     }
-
     const dfGrid = { columns: gridColumns, data: gridData || [] };
 
-    // Обработка "Архив" — ИСПРАВЛЕНО!
+    // Обработка "Архив"
     let archiveColumns = [];
     let archiveData = [];
-
     if (allArchiveRows.length > 0) {
       let headerRowIndex = 0;
       for (let i = 0; i < allArchiveRows.length; i++) {
-        const row = allArchiveRows[i]; // ✅ ИСПРАВЛЕНО: было allGridRows[i]
+        const row = allArchiveRows[i];
         if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
           if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
             headerRowIndex = i;
@@ -340,24 +326,21 @@ app.post('/api/upload', upload.fields([
           }
         }
       }
-
-      archiveColumns = allArchiveRows[headerRowIndex];
+      archiveColumns = allArchiveRows[headerRowIndex].map(col => typeof col === 'string' ? col.trim() : col);
       if (allArchiveRows.length > headerRowIndex + 1) {
         archiveData = allArchiveRows.slice(headerRowIndex + 1).map(row => {
           const obj = {};
           archiveColumns.forEach((col, i) => {
             if (col && typeof col === 'string') {
-              obj[col.trim()] = row[i];
+              obj[col] = row[i];
             }
           });
           return obj;
         }).filter(row => Object.keys(row).length > 0);
       }
     }
-
     const dfArchive = { columns: archiveColumns, data: archiveData || [] };
 
-    console.log("Архив: колонки =", dfArchive.columns);
     console.log("Архив: количество строк =", (dfArchive.data || []).length);
     console.log("Грид: количество строк =", (dfGrid.data || []).length);
 
@@ -404,6 +387,7 @@ app.post('/api/upload', upload.fields([
   }
 });
 
-app.listen(PORT, () => {
+// 🔥 Обязательно для Render
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
 });
