@@ -11,7 +11,7 @@ const FormData = require('form-data');
 const fetch = require('node-fetch');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 app.use(cors());
 app.use(express.static('.'));
@@ -70,181 +70,171 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === НАДЕЖНАЯ ФУНКЦИЯ ПРЕОБРАЗОВАНИЯ EXCEL ДАТЫ ===
-function excelDateToJSDate(serial) {
-  if (serial == null || serial === '') return null;
-  if (serial instanceof Date) return serial;
+// === НАДЕЖНЫЙ ПАРСЕР ДАТЫ ===
+function parseDate(value) {
+  if (value == null || value === '') return null;
 
-  if (typeof serial === 'string') {
-    serial = serial.trim();
-    const dateFromStr = new Date(serial);
-    if (!isNaN(dateFromStr.getTime())) return dateFromStr;
-
-    const parsed = parseFloat(serial.replace(/,/g, '.'));
-    if (!isNaN(parsed)) {
-      serial = parsed;
-    } else {
-      return null;
-    }
+  // Если уже Date — возвращаем
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value;
   }
 
-  if (typeof serial === 'number') {
-    const excelEpochWithError = new Date(1899, 11, 30);
-    const utcDays = Math.floor(serial - 1);
-    const milliseconds = utcDays * 24 * 60 * 60 * 1000;
-    return new Date(excelEpochWithError.getTime() + milliseconds);
+  // Если строка
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    // Пробуем как ISO или обычную дату
+    const dateFromStr = new Date(trimmed);
+    if (!isNaN(dateFromStr.getTime())) {
+      return dateFromStr;
+    }
+
+    // Пробуем как число (Excel serial)
+    const num = parseFloat(trimmed.replace(/,/g, '.'));
+    if (!isNaN(num)) {
+      const epoch = new Date(1899, 11, 30);
+      return new Date(epoch.getTime() + (num - 1) * 24 * 60 * 60 * 1000);
+    }
+    return null;
+  }
+
+  // Если число — Excel serial
+  if (typeof value === 'number') {
+    const epoch = new Date(1899, 11, 30);
+    return new Date(epoch.getTime() + (value - 1) * 24 * 60 * 60 * 1000);
   }
 
   return null;
 }
 
+// === ОЧИСТКА ЗАГОЛОВКА ===
+function cleanHeader(str) {
+  if (typeof str !== 'string') return '';
+  return str
+    .replace(/\u00A0/g, ' ')   // неразрывные пробелы
+    .replace(/\s+/g, ' ')      // несколько пробелов → один
+    .trim();
+}
+
 // === ГЕНЕРАЦИЯ ОТЧЕТА ===
-function generateReport(dfGrid, dfArchive, monthName, year) {
-  try {
-    console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
-    console.log(`Параметры: месяц=${monthName}, год=${year}`);
+function generateReport(gridData, archiveData, monthName, year) {
+  console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
+  console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
-    const allData = [...(dfGrid.data || []), ...(dfArchive.data || [])];
-    console.log(`Объединено строк: ${allData.length} (Грид: ${dfGrid.data?.length || 0}, Архив: ${dfArchive.data?.length || 0})`);
+  // Объединяем данные
+  const allData = [...gridData, ...archiveData];
+  console.log(`Объединено строк: ${allData.length} (Грид: ${gridData.length}, Архив: ${archiveData.length})`);
 
-    // === Нормализация заголовков ===
-    const cleanHeader = (str) => {
-      if (typeof str !== 'string') return '';
-      return str
-        .replace(/\u00A0/g, ' ')     // неразрывные пробелы → обычные
-        .replace(/\s+/g, ' ')        // несколько пробелов → один
-        .trim();
-    };
-
-    // Применяем нормализацию ко всем строкам
-    const processedData = allData.map(row => {
-      const cleanedRow = {};
-      for (const key in row) {
-        const cleanKey = cleanHeader(key);
-        cleanedRow[cleanKey] = row[key];
-      }
-      cleanedRow['Дата создания'] = excelDateToJSDate(cleanedRow['Дата создания']);
-      cleanedRow['Выполнена'] = excelDateToJSDate(cleanedRow['Выполнена']);
-      if (!cleanedRow['Ответственный'] || cleanedRow['Ответственный'].toString().trim() === '') {
-        cleanedRow['Ответственный'] = 'Неизвестно';
-      }
-      return cleanedRow;
-    });
-
-    // 🔍 ЯВНЫЙ ПОИСК ЦЕЛЕВОЙ ЗАДАЧИ
-    const targetTask = processedData.find(row =>
-      typeof row['Название'] === 'string' &&
-      row['Название'].includes('Новогодняя овечка')
-    );
-
-    if (targetTask) {
-      console.log("🎯 ЦЕЛЕВАЯ ЗАДАЧА НАЙДЕНА:");
-      console.log({
-        Название: targetTask['Название'],
-        Ответственный: targetTask['Ответственный'],
-        Выполнена_RAW: allData.find(r => r['Название'] === targetTask['Название'])?.['Выполнена'],
-        Выполнена_parsed: targetTask['Выполнена'],
-        Оценка: targetTask['Оценка работы'],
-        'Оценка (тип)': typeof targetTask['Оценка работы'],
-        Колонки: Object.keys(targetTask).filter(k => k.includes('Оценка'))
-      });
-    } else {
-      console.log("❌ ЦЕЛЕВАЯ ЗАДАЧА НЕ НАЙДЕНА В ОБЪЕДИНЁННЫХ ДАННЫХ");
+  // Очищаем заголовки и парсим даты
+  const processed = allData.map(row => {
+    const cleanRow = {};
+    for (const key in row) {
+      const cleanKey = cleanHeader(key);
+      cleanRow[cleanKey] = row[key];
     }
 
-    // === 3. ОПРЕДЕЛЕНИЕ ПЕРИОДА ===
-    const monthObj = moment(monthName, 'MMMM', true);
-    if (!monthObj.isValid()) throw new Error("Неверный месяц");
-    const monthNum = monthObj.month() + 1;
-    const monthPeriod = `${year}-${monthNum.toString().padStart(2, '0')}`;
-    console.log(`Фильтруем по периоду: ${monthPeriod}`);
+    cleanRow['Дата создания'] = parseDate(cleanRow['Дата создания']);
+    cleanRow['Выполнена'] = parseDate(cleanRow['Выполнена']);
 
-    // === 4. КЛАССИФИКАЦИЯ ===
-    const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
-    const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
-    const isDesigner = (row) => !isTextAuthor(row) && row['Ответственный'] !== 'Неизвестно';
-    const isUnknown = (row) => row['Ответственный'] === 'Неизвестно';
-
-    const completedDesign = [];
-    const completedUnknown = [];
-
-    for (const row of processedData) {
-      const completed = row['Выполнена'];
-      if (completed && moment(completed).isValid()) {
-        if (moment(completed).format('YYYY-MM') === monthPeriod) {
-          if (isDesigner(row)) completedDesign.push(row);
-          else if (isUnknown(row)) completedUnknown.push(row);
-        }
-      }
+    if (!cleanRow['Ответственный'] || cleanRow['Ответственный'].toString().trim() === '') {
+      cleanRow['Ответственный'] = 'Неизвестно';
     }
 
-    console.log(`Дизайнеры — выполнено: ${completedDesign.length}`);
-    console.log(`Без ответственного — выполнено: ${completedUnknown.length}`);
+    return cleanRow;
+  });
 
-    // === 6. ФОРМИРОВАНИЕ ОТЧЁТА ===
-    const allCompleted = [...completedDesign, ...completedUnknown];
-    let report = [];
+  // 🔍 Поиск целевой задачи
+  const target = processed.find(r =>
+    typeof r['Название'] === 'string' &&
+    r['Название'].includes('Новогодняя овечка')
+  );
 
-    if (allCompleted.length > 0) {
-      const reportMap = {};
-      for (const row of allCompleted) {
-        const resp = row['Ответственный'] || 'Неизвестно';
-        if (!reportMap[resp]) {
-          reportMap[resp] = { Задачи: 0, Макеты: 0, Варианты: 0, Оценка: 0, count: 0 };
-        }
-        reportMap[resp].Задачи += 1;
-        reportMap[resp].Макеты += parseInt(row['Количество макетов']) || 0;
-        reportMap[resp].Варианты += parseInt(row['Количество предложенных вариантов']) || 0;
-
-        let scoreValue = null;
-        if (row['Оценка работы'] !== undefined && row['Оценка работы'] !== null && row['Оценка работы'] !== '') {
-          scoreValue = parseFloat(row['Оценка работы']);
-        }
-        if (scoreValue !== null && !isNaN(scoreValue)) {
-          reportMap[resp].Оценка += scoreValue;
-          reportMap[resp].count += 1;
-          console.log(`✅ Учёт оценки: ${resp} → ${scoreValue}`);
-        }
-      }
-
-      report = Object.keys(reportMap).map(resp => ({
-        Ответственный: resp,
-        Задачи: reportMap[resp].Задачи,
-        Макеты: reportMap[resp].Макеты,
-        Варианты: reportMap[resp].Варианты,
-        Оценка: reportMap[resp].count > 0 ? (reportMap[resp].Оценка / reportMap[resp].count).toFixed(2) : '—'
-      }));
-    }
-
-    // Итог
-    if (report.length > 0) {
-      const validReports = report.filter(r => r.Оценка !== '—');
-      const totalRow = {
-        Ответственный: 'ИТОГО',
-        Задачи: report.reduce((sum, r) => sum + r.Задачи, 0),
-        Макеты: report.reduce((sum, r) => sum + r.Макеты, 0),
-        Варианты: report.reduce((sum, r) => sum + r.Варианты, 0),
-        Оценка: validReports.length > 0
-          ? (validReports.reduce((sum, r) => sum + parseFloat(r.Оценка), 0) / validReports.length).toFixed(2)
-          : '—'
-      };
-      report.push(totalRow);
-    }
-
-    const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
-
-Дизайнеры:
-- Выполнено задач: ${completedDesign.length}
-
-СТАТИСТИКА ПО ВЫПОЛНЕННЫМ ЗАДАЧАМ ДИЗАЙНЕРОВ И ЗАДАЧАМ БЕЗ ОТВЕТСТВЕННОГО`;
-
-    console.log("\n✅ ОТЧЕТ УСПЕШНО СФОРМИРОВАН");
-    return { report, textReport };
-
-  } catch (error) {
-    console.error("❌ ОШИБКА В generateReport:", error.message);
-    throw error;
+  if (target) {
+    console.log("🎯 Целевая задача найдена:");
+    console.log("  Название:", target['Название']);
+    console.log("  Ответственный:", target['Ответственный']);
+    console.log("  Выполнена (raw):", allData.find(r => r['Название'] === target['Название'])?.['Выполнена']);
+    console.log("  Выполнена (parsed):", target['Выполнена']);
+    console.log("  Оценка работы:", target['Оценка работы']);
+  } else {
+    console.log("❌ Целевая задача НЕ найдена");
   }
+
+  // Период
+  const monthObj = moment(monthName, 'MMMM', true);
+  if (!monthObj.isValid()) throw new Error("Неверный месяц");
+  const monthPeriod = `${year}-${(monthObj.month() + 1).toString().padStart(2, '0')}`;
+  console.log(`Фильтруем по периоду: ${monthPeriod}`);
+
+  // Фильтрация дизайнеров
+  const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
+  const isDesigner = (row) => {
+    const resp = row['Ответственный'];
+    return resp !== 'Неизвестно' && !textAuthors.includes(resp);
+  };
+
+  const completedDesign = processed.filter(row => {
+    const completed = row['Выполнена'];
+    return (
+      isDesigner(row) &&
+      completed &&
+      moment(completed).isValid() &&
+      moment(completed).format('YYYY-MM') === monthPeriod
+    );
+  });
+
+  console.log(`Дизайнеры — выполнено: ${completedDesign.length}`);
+
+  // Сбор статистики
+  const reportMap = {};
+  for (const row of completedDesign) {
+    const resp = row['Ответственный'];
+    if (!reportMap[resp]) {
+      reportMap[resp] = { Задачи: 0, Макеты: 0, Варианты: 0, Оценка: 0, count: 0 };
+    }
+    reportMap[resp].Задачи += 1;
+    reportMap[resp].Макеты += parseInt(row['Количество макетов']) || 0;
+    reportMap[resp].Варианты += parseInt(row['Количество предложенных вариантов']) || 0;
+
+    const scoreRaw = row['Оценка работы'];
+    if (scoreRaw != null && scoreRaw !== '') {
+      const score = parseFloat(scoreRaw);
+      if (!isNaN(score)) {
+        reportMap[resp].Оценка += score;
+        reportMap[resp].count += 1;
+        console.log(`✅ Учёт оценки: ${resp} → ${score}`);
+      }
+    }
+  }
+
+  let report = Object.keys(reportMap).map(resp => ({
+    Ответственный: resp,
+    Задачи: reportMap[resp].Задачи,
+    Макеты: reportMap[resp].Макеты,
+    Варианты: reportMap[resp].Варианты,
+    Оценка: reportMap[resp].count > 0 ? (reportMap[resp].Оценка / reportMap[resp].count).toFixed(2) : '—'
+  }));
+
+  // Итог
+  if (report.length > 0) {
+    const valid = report.filter(r => r.Оценка !== '—');
+    const total = {
+      Ответственный: 'ИТОГО',
+      Задачи: report.reduce((s, r) => s + r.Задачи, 0),
+      Макеты: report.reduce((s, r) => s + r.Макеты, 0),
+      Варианты: report.reduce((s, r) => s + r.Варианты, 0),
+      Оценка: valid.length > 0
+        ? (valid.reduce((s, r) => s + parseFloat(r.Оценка), 0) / valid.length).toFixed(2)
+        : '—'
+    };
+    report.push(total);
+  }
+
+  const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА\n\nДизайнеры — выполнено задач: ${completedDesign.length}`;
+
+  console.log("✅ Отчёт сформирован");
+  return { report, textReport };
 }
 
 // === МАРШРУТЫ ===
@@ -253,107 +243,35 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.get('/report', (req, res) => {
-  res.sendFile(path.join(__dirname, 'report.html'));
-});
-
 app.post('/api/upload', upload.fields([
   { name: 'grid', maxCount: 1 },
   { name: 'archive', maxCount: 1 }
 ]), async (req, res) => {
   try {
     const { month, year } = req.body;
-
-    if (!req.files.grid || !req.files.archive) {
+    if (!req.files?.grid || !req.files?.archive) {
       return res.status(400).json({ error: 'Загрузите оба файла' });
     }
 
     const gridPath = req.files.grid[0].path;
     const archivePath = req.files.archive[0].path;
 
-    const gridWorkbook = xlsx.readFile(gridPath);
-    const archiveWorkbook = xlsx.readFile(archivePath);
+    // Читаем Excel как массив объектов — экономим память!
+    const gridWB = xlsx.readFile(gridPath);
+    const archiveWB = xlsx.readFile(archivePath);
 
-    const gridSheet = gridWorkbook.Sheets[gridWorkbook.SheetNames[0]];
-    const archiveSheet = archiveWorkbook.Sheets[archiveWorkbook.SheetNames[0]];
+    const gridSheet = gridWB.Sheets[gridWB.SheetNames[0]];
+    const archiveSheet = archiveWB.Sheets[archiveWB.SheetNames[0]];
 
-    if (!gridSheet || !archiveSheet) {
-      throw new Error('Один из листов Excel пуст или не найден');
-    }
+    const gridData = xlsx.utils.sheet_to_json(gridSheet, { defval: '' });
+    const archiveData = xlsx.utils.sheet_to_json(archiveSheet, { defval: '' });
 
-    const allGridRows = xlsx.utils.sheet_to_json(gridSheet, { header: 1, defval: null });
-    const allArchiveRows = xlsx.utils.sheet_to_json(archiveSheet, { header: 1, defval: null });
+    console.log("Грид:", gridData.length, "строк");
+    console.log("Архив:", archiveData.length, "строк");
 
-    // Обработка "Грид"
-    let gridColumns = [];
-    let gridData = [];
+    const { report, textReport } = generateReport(gridData, archiveData, month, parseInt(year));
 
-    if (allGridRows.length > 0) {
-      let headerRowIndex = 0;
-      for (let i = 0; i < allGridRows.length; i++) {
-        const row = allGridRows[i];
-        if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
-          if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
-            headerRowIndex = i;
-            break;
-          }
-        }
-      }
-      gridColumns = allGridRows[headerRowIndex].map(col => col ? col.toString().trim() : '');
-      if (allGridRows.length > headerRowIndex + 1) {
-        gridData = allGridRows.slice(headerRowIndex + 1).map(row => {
-          const obj = {};
-          gridColumns.forEach((col, i) => {
-            if (col && col !== '') {
-              obj[col] = row[i];
-            }
-          });
-          return obj;
-        }).filter(row => Object.keys(row).length > 0);
-      }
-    }
-
-    const dfGrid = { columns: gridColumns, data: gridData || [] };
-
-    // Обработка "Архив"
-    let archiveColumns = [];
-    let archiveData = [];
-
-    if (allArchiveRows.length > 0) {
-      let headerRowIndex = 0;
-      for (let i = 0; i < allArchiveRows.length; i++) {
-        const row = allArchiveRows[i]; // ✅ исправлено
-        if (Array.isArray(row) && row.length > 0 && typeof row[0] === 'string' && row[0].trim() !== '') {
-          if (row.some(cell => typeof cell === 'string' && cell.includes('Название'))) {
-            headerRowIndex = i;
-            break;
-          }
-        }
-      }
-
-      archiveColumns = allArchiveRows[headerRowIndex].map(col => col ? col.toString().trim() : '');
-      if (allArchiveRows.length > headerRowIndex + 1) {
-        archiveData = allArchiveRows.slice(headerRowIndex + 1).map(row => {
-          const obj = {};
-          archiveColumns.forEach((col, i) => {
-            if (col && col !== '') {
-              obj[col] = row[i];
-            }
-          });
-          return obj;
-        }).filter(row => Object.keys(row).length > 0);
-      }
-    }
-
-    const dfArchive = { columns: archiveColumns, data: archiveData || [] };
-
-    const { report, textReport } = generateReport(
-      dfGrid,
-      dfArchive,
-      month,
-      parseInt(year)
-    );
-
+    // Сохраняем файлы
     const tempDir = path.join(UPLOAD_DIR, `temp_${Date.now()}`);
     await fs.mkdir(tempDir);
 
@@ -370,22 +288,17 @@ app.post('/api/upload', upload.fields([
     if (cardId) {
       await uploadFileToKaiten(excelPath, `Отчет_${month}_${year}.xlsx`, cardId);
       await uploadFileToKaiten(txtPath, `Статистика_${month}_${year}.txt`, cardId);
-    } else {
-      console.warn("⚠️ KAITEN_CARD_ID не задан");
     }
 
+    // Уборка
     await fs.unlink(gridPath);
     await fs.unlink(archivePath);
     await fs.remove(tempDir);
 
-    res.json({
-      success: true,
-      textReport: textReport,
-      report: report || []
-    });
+    res.json({ success: true, textReport, report });
 
   } catch (error) {
-    console.error("❌ Ошибка в /api/upload:", error.message);
+    console.error("❌ Ошибка:", error.message);
     res.status(500).json({ error: error.message });
   }
 });
