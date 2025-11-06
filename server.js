@@ -74,23 +74,19 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
 function parseDate(value) {
   if (value == null || value === '') return null;
 
-  // Если уже Date — возвращаем
   if (value instanceof Date && !isNaN(value.getTime())) {
     return value;
   }
 
-  // Если строка
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (!trimmed) return null;
 
-    // Пробуем как ISO или обычную дату
     const dateFromStr = new Date(trimmed);
     if (!isNaN(dateFromStr.getTime())) {
       return dateFromStr;
     }
 
-    // Пробуем как число (Excel serial)
     const num = parseFloat(trimmed.replace(/,/g, '.'));
     if (!isNaN(num)) {
       const epoch = new Date(1899, 11, 30);
@@ -99,7 +95,6 @@ function parseDate(value) {
     return null;
   }
 
-  // Если число — Excel serial
   if (typeof value === 'number') {
     const epoch = new Date(1899, 11, 30);
     return new Date(epoch.getTime() + (value - 1) * 24 * 60 * 60 * 1000);
@@ -112,8 +107,8 @@ function parseDate(value) {
 function cleanHeader(str) {
   if (typeof str !== 'string') return '';
   return str
-    .replace(/\u00A0/g, ' ')   // неразрывные пробелы
-    .replace(/\s+/g, ' ')      // несколько пробелов → один
+    .replace(/\u00A0/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
 }
 
@@ -122,25 +117,20 @@ function generateReport(gridData, archiveData, monthName, year) {
   console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
   console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
-  // Объединяем данные
   const allData = [...gridData, ...archiveData];
   console.log(`Объединено строк: ${allData.length} (Грид: ${gridData.length}, Архив: ${archiveData.length})`);
 
-  // Очищаем заголовки и парсим даты
   const processed = allData.map(row => {
     const cleanRow = {};
     for (const key in row) {
       const cleanKey = cleanHeader(key);
       cleanRow[cleanKey] = row[key];
     }
-
     cleanRow['Дата создания'] = parseDate(cleanRow['Дата создания']);
     cleanRow['Выполнена'] = parseDate(cleanRow['Выполнена']);
-
     if (!cleanRow['Ответственный'] || cleanRow['Ответственный'].toString().trim() === '') {
       cleanRow['Ответственный'] = 'Неизвестно';
     }
-
     return cleanRow;
   });
 
@@ -161,13 +151,11 @@ function generateReport(gridData, archiveData, monthName, year) {
     console.log("❌ Целевая задача НЕ найдена");
   }
 
-  // Период
   const monthObj = moment(monthName, 'MMMM', true);
   if (!monthObj.isValid()) throw new Error("Неверный месяц");
   const monthPeriod = `${year}-${(monthObj.month() + 1).toString().padStart(2, '0')}`;
   console.log(`Фильтруем по периоду: ${monthPeriod}`);
 
-  // Фильтрация дизайнеров
   const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
   const isDesigner = (row) => {
     const resp = row['Ответственный'];
@@ -186,7 +174,6 @@ function generateReport(gridData, archiveData, monthName, year) {
 
   console.log(`Дизайнеры — выполнено: ${completedDesign.length}`);
 
-  // Сбор статистики
   const reportMap = {};
   for (const row of completedDesign) {
     const resp = row['Ответственный'];
@@ -216,7 +203,6 @@ function generateReport(gridData, archiveData, monthName, year) {
     Оценка: reportMap[resp].count > 0 ? (reportMap[resp].Оценка / reportMap[resp].count).toFixed(2) : '—'
   }));
 
-  // Итог
   if (report.length > 0) {
     const valid = report.filter(r => r.Оценка !== '—');
     const total = {
@@ -243,6 +229,10 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'index.html'));
 });
 
+app.get('/report', (req, res) => {
+  res.sendFile(path.join(__dirname, 'report.html'));
+});
+
 app.post('/api/upload', upload.fields([
   { name: 'grid', maxCount: 1 },
   { name: 'archive', maxCount: 1 }
@@ -256,7 +246,6 @@ app.post('/api/upload', upload.fields([
     const gridPath = req.files.grid[0].path;
     const archivePath = req.files.archive[0].path;
 
-    // Читаем Excel как массив объектов — экономим память!
     const gridWB = xlsx.readFile(gridPath);
     const archiveWB = xlsx.readFile(archivePath);
 
@@ -266,12 +255,8 @@ app.post('/api/upload', upload.fields([
     const gridData = xlsx.utils.sheet_to_json(gridSheet, { defval: '' });
     const archiveData = xlsx.utils.sheet_to_json(archiveSheet, { defval: '' });
 
-    console.log("Грид:", gridData.length, "строк");
-    console.log("Архив:", archiveData.length, "строк");
-
     const { report, textReport } = generateReport(gridData, archiveData, month, parseInt(year));
 
-    // Сохраняем файлы
     const tempDir = path.join(UPLOAD_DIR, `temp_${Date.now()}`);
     await fs.mkdir(tempDir);
 
@@ -290,7 +275,6 @@ app.post('/api/upload', upload.fields([
       await uploadFileToKaiten(txtPath, `Статистика_${month}_${year}.txt`, cardId);
     }
 
-    // Уборка
     await fs.unlink(gridPath);
     await fs.unlink(archivePath);
     await fs.remove(tempDir);
