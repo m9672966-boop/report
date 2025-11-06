@@ -75,22 +75,30 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
 function excelDateToJSDate(serial) {
   if (serial == null || serial === '') return null;
   if (serial instanceof Date) return serial;
+  
+  // Если строка — попробуем распарсить вручную
   if (typeof serial === 'string') {
-    const parsed = parseFloat(serial);
-    if (!isNaN(parsed)) {
-      serial = parsed;
-    } else {
-      const date = new Date(serial);
+    // Поддержка DD.MM.YYYY HH:MM:SS и DD.MM.YYYY
+    const match = serial.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (match) {
+      const [, day, month, year, hour = '0', minute = '0', second = '0'] = match;
+      const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T${hour.padStart(2, '0')}:${minute.padStart(2, '0')}:${second.padStart(2, '0')}`;
+      const date = new Date(iso);
       if (!isNaN(date.getTime())) return date;
-      return null;
     }
+    // Fallback
+    const date = new Date(serial);
+    return isNaN(date.getTime()) ? null : date;
   }
+
+  // Если число — обработать как Excel serial date
   if (typeof serial === 'number') {
     const excelEpochWithError = new Date(1899, 11, 30);
     const utcDays = Math.floor(serial - 1);
     const ms = utcDays * 24 * 60 * 60 * 1000;
     return new Date(excelEpochWithError.getTime() + ms);
   }
+
   return null;
 }
 
