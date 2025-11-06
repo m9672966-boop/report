@@ -11,6 +11,7 @@ const FormData = require('form-data');
 const fetch = require('node-fetch');
 
 const app = express();
+// Используем PORT из Render (по умолчанию 10000)
 const PORT = process.env.PORT || 10000;
 
 app.use(cors());
@@ -111,7 +112,9 @@ function generateReport(gridData, archiveData, monthName, year) {
   const allData = [...gridData, ...archiveData];
   console.log(`Объединено строк: ${allData.length}`);
 
-  const processed = allData.map(row => {
+  const processed = [];
+  for (let i = 0; i < allData.length; i++) {
+    const row = allData[i];
     const cleanRow = {};
     for (const key in row) {
       const cleanKey = cleanHeader(key);
@@ -122,16 +125,16 @@ function generateReport(gridData, archiveData, monthName, year) {
     if (!cleanRow['Ответственный'] || cleanRow['Ответственный'].toString().trim() === '') {
       cleanRow['Ответственный'] = 'Неизвестно';
     }
-    return cleanRow;
-  });
+    processed.push(cleanRow);
+  }
 
-  // 🔍 Поиск целевой задачи (для отладки)
-  const target = processed.find(r =>
-    typeof r['Название'] === 'string' &&
-    r['Название'].includes('Новогодняя овечка')
-  );
-  if (target) {
-    console.log("🎯 Найдена задача с оценкой 10.0:", target['Оценка работы']);
+  // 🔍 Отладка: проверка целевой задачи
+  for (let i = 0; i < processed.length; i++) {
+    const row = processed[i];
+    if (typeof row['Название'] === 'string' && row['Название'].includes('Новогодняя овечка')) {
+      console.log("🎯 Найдена задача:", row['Оценка работы']);
+      break;
+    }
   }
 
   const monthObj = moment(monthName, 'MMMM', true);
@@ -144,19 +147,25 @@ function generateReport(gridData, archiveData, monthName, year) {
     return resp !== 'Неизвестно' && !textAuthors.includes(resp);
   };
 
-  const completedDesign = processed.filter(row => {
+  const completedDesign = [];
+  for (let i = 0; i < processed.length; i++) {
+    const row = processed[i];
     const completed = row['Выполнена'];
-    return (
+    if (
       isDesigner(row) &&
       completed &&
       moment(completed).isValid() &&
       moment(completed).format('YYYY-MM') === monthPeriod
-    );
-  });
+    ) {
+      completedDesign.push(row);
+    }
+  }
 
-  // Сбор статистики БЕЗ строки "ИТОГО"
+  const neededFields = ['Ответственный', 'Количество макетов', 'Количество предложенных вариантов', 'Оценка работы'];
   const reportMap = {};
-  for (const row of completedDesign) {
+
+  for (let i = 0; i < completedDesign.length; i++) {
+    const row = completedDesign[i];
     const resp = row['Ответственный'];
     if (!reportMap[resp]) {
       reportMap[resp] = { Задачи: 0, Макеты: 0, Варианты: 0, Оценка: 0, count: 0 };
@@ -175,14 +184,16 @@ function generateReport(gridData, archiveData, monthName, year) {
     }
   }
 
-  // Формируем отчёт — ТОЛЬКО дизайнеры, БЕЗ "ИТОГО"
-  const report = Object.keys(reportMap).map(resp => ({
-    Ответственный: resp,
-    Задачи: reportMap[resp].Задачи,
-    Макеты: reportMap[resp].Макеты,
-    Варианты: reportMap[resp].Варианты,
-    Оценка: reportMap[resp].count > 0 ? (reportMap[resp].Оценка / reportMap[resp].count).toFixed(2) : '—'
-  }));
+  const report = [];
+  for (const resp in reportMap) {
+    report.push({
+      Ответственный: resp,
+      Задачи: reportMap[resp].Задачи,
+      Макеты: reportMap[resp].Макеты,
+      Варианты: reportMap[resp].Варианты,
+      Оценка: reportMap[resp].count > 0 ? (reportMap[resp].Оценка / reportMap[resp].count).toFixed(2) : '—'
+    });
+  }
 
   const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА\n\nДизайнеры — выполнено задач: ${completedDesign.length}`;
 
@@ -219,9 +230,35 @@ app.post('/api/upload', upload.fields([
     const gridSheet = gridWB.Sheets[gridWB.SheetNames[0]];
     const archiveSheet = archiveWB.Sheets[archiveWB.SheetNames[0]];
 
-    // Читаем как объекты — экономим память
-    const gridData = xlsx.utils.sheet_to_json(gridSheet, { defval: '' });
-    const archiveData = xlsx.utils.sheet_to_json(archiveSheet, { defval: '' });
+    // Читаем как объекты
+    const gridDataRaw = xlsx.utils.sheet_to_json(gridSheet, { defval: '' });
+    const archiveDataRaw = xlsx.utils.sheet_to_json(archiveSheet, { defval: '' });
+
+    // 🔹 ФИЛЬТРАЦИЯ: оставляем только нужные колонки
+    const neededColumns = [
+      'Название',
+      'Выполнена',
+      'Ответственный',
+      'Оценка работы',
+      'Количество макетов',
+      'Количество предложенных вариантов'
+    ];
+
+    const gridData = gridDataRaw.map(row => {
+      const filtered = {};
+      neededColumns.forEach(col => {
+        filtered[col] = row[col];
+      });
+      return filtered;
+    });
+
+    const archiveData = archiveDataRaw.map(row => {
+      const filtered = {};
+      neededColumns.forEach(col => {
+        filtered[col] = row[col];
+      });
+      return filtered;
+    });
 
     const { report, textReport } = generateReport(gridData, archiveData, month, parseInt(year));
 
@@ -255,6 +292,7 @@ app.post('/api/upload', upload.fields([
   }
 });
 
-app.listen(PORT, () => {
+// Слушаем на 0.0.0.0 и PORT (требование Render)
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
 });
