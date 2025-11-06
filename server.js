@@ -71,7 +71,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === НАДЕЖНАЯ ФУНКЦИЯ ПРЕОБРАЗОВАНИЯ EXCEL ДАТЫ ===
+// === ФУНКЦИЯ ПАРСИНГА ДАТЫ (оригинальная) ===
 function excelDateToJSDate(serial) {
   if (serial == null || serial === '') return null;
   if (serial instanceof Date) return serial;
@@ -100,91 +100,68 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
     console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
     console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
-    // === 1. ОБЪЕДИНЕНИЕ ДАННЫХ ===
-    const allData = [...(dfGrid.data || []), ...(dfArchive.data || [])];
-    console.log(`Объединено строк: ${allData.length} (Грид: ${dfGrid.data?.length || 0}, Архив: ${dfArchive.data?.length || 0})`);
-
-    // === 2. ЛОГИРОВАНИЕ ЗАГОЛОВКОВ ===
-    console.log("\n🔍 Заголовки из grid.xlsx:", dfGrid.columns);
-    console.log("🔍 Заголовки из archive.xlsx:", dfArchive.columns);
-
-    // === 3. ПРЕОБРАЗОВАНИЕ ДАТ ===
-    const processedData = allData.map(row => {
-      const rawCreated = row['Дата создания'];
-      const rawCompleted = row['Выполнена'];
-      const created = excelDateToJSDate(rawCreated);
-      const completed = excelDateToJSDate(rawCompleted);
-
-      // Логирование для задач Гнездиловой
-      if (row['Ответственный']?.includes('Гнездилова')) {
-        console.log(`\n🎯 Найдена задача Гнездиловой:`);
-        console.log(`  Название: ${row['Название']}`);
-        console.log(`  Сырая 'Дата создания': ${JSON.stringify(rawCreated)}`);
-        console.log(`  Сырая 'Выполнена': ${JSON.stringify(rawCompleted)}`);
-        console.log(`  Обработанная 'Выполнена': ${completed}`);
-        if (completed && moment(completed).isValid()) {
-          console.log(`  Форматированная дата: ${moment(completed).format('YYYY-MM')}`);
-        }
-      }
-
-      row['Дата создания'] = created;
-      row['Выполнена'] = completed;
+    // === 1. ДАННЫЕ ИЗ ГРИДА: только для "поступивших" ===
+    const createdData = dfGrid.data || [];
+    const processedCreated = createdData.map(row => {
+      row['Дата создания'] = excelDateToJSDate(row['Дата создания']);
       if (!row['Ответственный'] || row['Ответственный'].toString().trim() === '') {
         row['Ответственный'] = 'Неизвестно';
       }
       return row;
     });
 
-    // === 4. ОПРЕДЕЛЕНИЕ ПЕРИОДА ===
+    // === 2. ДАННЫЕ ИЗ АРХИВА: только для "выполненных" ===
+    const completedData = dfArchive.data || [];
+    const processedCompleted = completedData.map(row => {
+      row['Выполнена'] = excelDateToJSDate(row['Выполнена']);
+      if (!row['Ответственный'] || row['Ответственный'].toString().trim() === '') {
+        row['Ответственный'] = 'Неизвестно';
+      }
+      return row;
+    });
+
+    // === 3. ОПРЕДЕЛЕНИЕ ПЕРИОДА ===
     const monthObj = moment(monthName, 'MMMM', true);
     if (!monthObj.isValid()) throw new Error("Неверный месяц");
     const monthNum = monthObj.month() + 1;
     const monthPeriod = `${year}-${monthNum.toString().padStart(2, '0')}`;
-    console.log(`\n📅 Фильтруем по периоду: ${monthPeriod}`);
+    console.log(`Фильтруем по периоду: ${monthPeriod}`);
 
-    // === 5. КЛАССИФИКАЦИЯ ===
+    // === 4. КЛАССИФИКАЦИЯ ===
     const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
-    const isTextAuthor = (row) => textAuthors.includes(row['Ответственный']);
-    const isDesigner = (row) => !isTextAuthor(row) && row['Ответственный'] !== 'Неизвестно';
-    const isUnknown = (row) => row['Ответственный'] === 'Неизвестно';
+    const isTextAuthor = (name) => textAuthors.some(ta => name.includes(ta));
+    const classify = (name) => {
+      if (name === 'Неизвестно') return 'unknown';
+      if (isTextAuthor(name)) return 'text';
+      return 'designer';
+    };
 
-    // === 6. ПОДСЧЁТ ===
-    const createdDesign = [];
-    const completedDesign = [];
-    const createdText = [];
-    const completedText = [];
-    const createdUnknown = [];
-    const completedUnknown = [];
+    // === 5. СБОР СТАТИСТИКИ ===
+    const stats = {
+      created: { designer: 0, text: 0, unknown: 0 },
+      completed: { designer: 0, text: 0, unknown: 0 }
+    };
 
-    for (const row of processedData) {
+    const reportMap = {};
+
+    // --- Поступившие (только из Грида) ---
+    for (const row of processedCreated) {
       const created = row['Дата создания'];
+      const resp = row['Ответственный'];
+      const type = classify(resp);
       if (created && moment(created).isValid() && moment(created).format('YYYY-MM') === monthPeriod) {
-        if (isDesigner(row)) createdDesign.push(row);
-        else if (isTextAuthor(row)) createdText.push(row);
-        else if (isUnknown(row)) createdUnknown.push(row);
-      }
-
-      const completed = row['Выполнена'];
-      if (completed && moment(completed).isValid() && moment(completed).format('YYYY-MM') === monthPeriod) {
-        if (isDesigner(row)) completedDesign.push(row);
-        else if (isTextAuthor(row)) completedText.push(row);
-        else if (isUnknown(row)) completedUnknown.push(row);
+        stats.created[type]++;
       }
     }
 
-    console.log("\n📊 СТАТИСТИКА:");
-    console.log(`Дизайнеры — создано: ${createdDesign.length}, выполнено: ${completedDesign.length}`);
-    console.log(`Текстовые — создано: ${createdText.length}, выполнено: ${completedText.length}`);
-    console.log(`Без ответственного — создано: ${createdUnknown.length}, выполнено: ${completedUnknown.length}`);
+    // --- Выполненные (только из Архива) ---
+    for (const row of processedCompleted) {
+      const completed = row['Выполнена'];
+      const resp = row['Ответственный'];
+      const type = classify(resp);
+      if (completed && moment(completed).isValid() && moment(completed).format('YYYY-MM') === monthPeriod) {
+        stats.completed[type]++;
 
-    // === 7. ФОРМИРОВАНИЕ ОТЧЁТА ===
-    const allCompleted = [...completedDesign, ...completedUnknown];
-    let report = [];
-
-    if (allCompleted.length > 0) {
-      const reportMap = {};
-      for (const row of allCompleted) {
-        const resp = row['Ответственный'] || 'Неизвестно';
         if (!reportMap[resp]) {
           reportMap[resp] = { Задачи: 0, Макеты: 0, Варианты: 0, Оценка: 0, count: 0 };
         }
@@ -199,15 +176,21 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
           }
         }
       }
-
-      report = Object.keys(reportMap).map(resp => ({
-        Ответственный: resp,
-        Задачи: reportMap[resp].Задачи,
-        Макеты: reportMap[resp].Макеты,
-        Варианты: reportMap[resp].Варианты,
-        Оценка: reportMap[resp].count > 0 ? (reportMap[resp].Оценка / reportMap[resp].count).toFixed(2) : 0
-      }));
     }
+
+    console.log("\n📊 СТАТИСТИКА:");
+    console.log(`Дизайнеры — создано: ${stats.created.designer}, выполнено: ${stats.completed.designer}`);
+    console.log(`Текстовые — создано: ${stats.created.text}, выполнено: ${stats.completed.text}`);
+    console.log(`Без ответственного — создано: ${stats.created.unknown}, выполнено: ${stats.completed.unknown}`);
+
+    // === 6. ФОРМИРОВАНИЕ ОТЧЁТА ===
+    let report = Object.keys(reportMap).map(resp => ({
+      Ответственный: resp,
+      Задачи: reportMap[resp].Задачи,
+      Макеты: reportMap[resp].Макеты,
+      Варианты: reportMap[resp].Варианты,
+      Оценка: reportMap[resp].count > 0 ? (reportMap[resp].Оценка / reportMap[resp].count).toFixed(2) : 0
+    }));
 
     if (report.length > 0) {
       const totalRow = {
@@ -220,19 +203,20 @@ function generateReport(dfGrid, dfArchive, monthName, year) {
       report.push(totalRow);
     }
 
+    // === 7. ТЕКСТОВЫЙ ОТЧЁТ ===
     const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
 
 Дизайнеры:
-- Поступило задач: ${createdDesign.length}
-- Выполнено задач: ${completedDesign.length}
+- Поступило задач: ${stats.created.designer}
+- Выполнено задач: ${stats.completed.designer}
 
 Текстовые задачи:
-- Поступило: ${createdText.length}
-- Выполнено: ${completedText.length}
+- Поступило: ${stats.created.text}
+- Выполнено: ${stats.completed.text}
 
 Задачи без ответственного:
-- Поступило: ${createdUnknown.length}
-- Выполнено: ${completedUnknown.length}
+- Поступило: ${stats.created.unknown}
+- Выполнено: ${stats.completed.unknown}
 
 СТАТИСТИКА ПО ВЫПОЛНЕННЫМ ЗАДАЧАМ ДИЗАЙНЕРОВ И ЗАДАЧАМ БЕЗ ОТВЕТСТВЕННОГО:
 (только задачи, завершенные в отчетном периоде)`;
