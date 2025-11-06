@@ -70,22 +70,16 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === НАДЕЖНЫЙ ПАРСЕР ДАТЫ ===
+// === ПАРСЕР ДАТЫ ===
 function parseDate(value) {
   if (value == null || value === '') return null;
-
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    return value;
-  }
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
 
   if (typeof value === 'string') {
     const trimmed = value.trim();
     if (!trimmed) return null;
-
     const dateFromStr = new Date(trimmed);
-    if (!isNaN(dateFromStr.getTime())) {
-      return dateFromStr;
-    }
+    if (!isNaN(dateFromStr.getTime())) return dateFromStr;
 
     const num = parseFloat(trimmed.replace(/,/g, '.'));
     if (!isNaN(num)) {
@@ -106,10 +100,7 @@ function parseDate(value) {
 // === ОЧИСТКА ЗАГОЛОВКА ===
 function cleanHeader(str) {
   if (typeof str !== 'string') return '';
-  return str
-    .replace(/\u00A0/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return str.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 // === ГЕНЕРАЦИЯ ОТЧЕТА ===
@@ -118,7 +109,7 @@ function generateReport(gridData, archiveData, monthName, year) {
   console.log(`Параметры: месяц=${monthName}, год=${year}`);
 
   const allData = [...gridData, ...archiveData];
-  console.log(`Объединено строк: ${allData.length} (Грид: ${gridData.length}, Архив: ${archiveData.length})`);
+  console.log(`Объединено строк: ${allData.length}`);
 
   const processed = allData.map(row => {
     const cleanRow = {};
@@ -134,27 +125,18 @@ function generateReport(gridData, archiveData, monthName, year) {
     return cleanRow;
   });
 
-  // 🔍 Поиск целевой задачи
+  // 🔍 Поиск целевой задачи (для отладки)
   const target = processed.find(r =>
     typeof r['Название'] === 'string' &&
     r['Название'].includes('Новогодняя овечка')
   );
-
   if (target) {
-    console.log("🎯 Целевая задача найдена:");
-    console.log("  Название:", target['Название']);
-    console.log("  Ответственный:", target['Ответственный']);
-    console.log("  Выполнена (raw):", allData.find(r => r['Название'] === target['Название'])?.['Выполнена']);
-    console.log("  Выполнена (parsed):", target['Выполнена']);
-    console.log("  Оценка работы:", target['Оценка работы']);
-  } else {
-    console.log("❌ Целевая задача НЕ найдена");
+    console.log("🎯 Найдена задача с оценкой 10.0:", target['Оценка работы']);
   }
 
   const monthObj = moment(monthName, 'MMMM', true);
   if (!monthObj.isValid()) throw new Error("Неверный месяц");
   const monthPeriod = `${year}-${(monthObj.month() + 1).toString().padStart(2, '0')}`;
-  console.log(`Фильтруем по периоду: ${monthPeriod}`);
 
   const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
   const isDesigner = (row) => {
@@ -172,8 +154,7 @@ function generateReport(gridData, archiveData, monthName, year) {
     );
   });
 
-  console.log(`Дизайнеры — выполнено: ${completedDesign.length}`);
-
+  // Сбор статистики БЕЗ строки "ИТОГО"
   const reportMap = {};
   for (const row of completedDesign) {
     const resp = row['Ответственный'];
@@ -190,32 +171,18 @@ function generateReport(gridData, archiveData, monthName, year) {
       if (!isNaN(score)) {
         reportMap[resp].Оценка += score;
         reportMap[resp].count += 1;
-        console.log(`✅ Учёт оценки: ${resp} → ${score}`);
       }
     }
   }
 
-  let report = Object.keys(reportMap).map(resp => ({
+  // Формируем отчёт — ТОЛЬКО дизайнеры, БЕЗ "ИТОГО"
+  const report = Object.keys(reportMap).map(resp => ({
     Ответственный: resp,
     Задачи: reportMap[resp].Задачи,
     Макеты: reportMap[resp].Макеты,
     Варианты: reportMap[resp].Варианты,
     Оценка: reportMap[resp].count > 0 ? (reportMap[resp].Оценка / reportMap[resp].count).toFixed(2) : '—'
   }));
-
-  if (report.length > 0) {
-    const valid = report.filter(r => r.Оценка !== '—');
-    const total = {
-      Ответственный: 'ИТОГО',
-      Задачи: report.reduce((s, r) => s + r.Задачи, 0),
-      Макеты: report.reduce((s, r) => s + r.Макеты, 0),
-      Варианты: report.reduce((s, r) => s + r.Варианты, 0),
-      Оценка: valid.length > 0
-        ? (valid.reduce((s, r) => s + parseFloat(r.Оценка), 0) / valid.length).toFixed(2)
-        : '—'
-    };
-    report.push(total);
-  }
 
   const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА\n\nДизайнеры — выполнено задач: ${completedDesign.length}`;
 
@@ -252,6 +219,7 @@ app.post('/api/upload', upload.fields([
     const gridSheet = gridWB.Sheets[gridWB.SheetNames[0]];
     const archiveSheet = archiveWB.Sheets[archiveWB.SheetNames[0]];
 
+    // Читаем как объекты — экономим память
     const gridData = xlsx.utils.sheet_to_json(gridSheet, { defval: '' });
     const archiveData = xlsx.utils.sheet_to_json(archiveSheet, { defval: '' });
 
