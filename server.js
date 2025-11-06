@@ -82,7 +82,24 @@ function parseDate(value) {
     return value;
   }
 
-  // Пробуем через moment с явными форматами
+  // ПРИОРИТЕТНО пробуем DD.MM.YYYY (это наш основной формат!)
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    // Проверяем, соответствует ли строка шаблону DD.MM.YYYY
+    const ddmmRegex = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/;
+    const match = trimmed.match(ddmmRegex);
+    if (match) {
+      const day = parseInt(match[1], 10);
+      const month = parseInt(match[2], 10) - 1; // месяц от 0 до 11
+      const year = parseInt(match[3], 10);
+      const date = new Date(year, month, day);
+      if (!isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
+        return date;
+      }
+    }
+  }
+
+  // Далее — стандартные форматы через moment
   const formats = [
     'DD.MM.YYYY',
     'D.MM.YYYY',
@@ -95,13 +112,12 @@ function parseDate(value) {
     'YYYY-MM-DD',
     'MM/DD/YYYY',
     'M/D/YYYY',
-    'DD.MM.YY',   // на случай двухзначного года
+    'DD.MM.YY',
     'D.M.YY'
   ];
 
   let parsedByMoment = null;
   if (typeof value === 'string') {
-    const trimmed = value.trim();
     for (const fmt of formats) {
       const m = moment(trimmed, fmt, true); // strict parsing
       if (m.isValid()) {
@@ -115,7 +131,7 @@ function parseDate(value) {
     return parsedByMoment;
   }
 
-  // Если число — предполагаем Excel serial date (начиная с 1899-12-30)
+  // Excel serial number
   let numValue = null;
   if (typeof value === 'number') {
     numValue = value;
@@ -128,22 +144,20 @@ function parseDate(value) {
   }
 
   if (numValue !== null && !isNaN(numValue)) {
-    // Excel считает 1900 год високосным (ложно), но для совместимости оставляем логику
-    const epoch = new Date(1899, 11, 30); // месяц 11 = декабрь
+    const epoch = new Date(1899, 11, 30);
     const dateFromExcel = new Date(epoch.getTime() + (numValue - 1) * 24 * 60 * 60 * 1000);
     if (!isNaN(dateFromExcel.getTime())) {
       return dateFromExcel;
     }
   }
 
-  // Последняя попытка: стандартный new Date()
+  // Последняя попытка
   const fallback = new Date(value);
   if (fallback instanceof Date && !isNaN(fallback.getTime())) {
     return fallback;
   }
 
-  return null;
-}
+  return null
 
 // === ОЧИСТКА ЗАГОЛОВКА ===
 function cleanHeader(str) {
