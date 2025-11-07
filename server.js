@@ -11,7 +11,6 @@ const FormData = require('form-data');
 const fetch = require('node-fetch');
 
 const app = express();
-// Используем PORT из Render (по умолчанию 10000)
 const PORT = process.env.PORT || 10000;
 
 app.use(cors());
@@ -33,6 +32,39 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// === НАДЁЖНЫЙ ПАРСЕР ДАТ ИЗ EXCEL ===
+function excelDateToJSDate(serial) {
+  if (serial == null || serial === '') return null;
+  if (serial instanceof Date && !isNaN(serial.getTime())) return serial;
+
+  // Строка: попробовать как дату, потом как число
+  if (typeof serial === 'string') {
+    const trimmed = serial.trim();
+    if (trimmed === '') return null;
+
+    const dateFromStr = new Date(trimmed);
+    if (!isNaN(dateFromStr.getTime())) return dateFromStr;
+
+    const parsed = parseFloat(trimmed.replace(/,/g, '.'));
+    if (!isNaN(parsed)) {
+      serial = parsed;
+    } else {
+      return null;
+    }
+  }
+
+  // Число: Excel serial date
+  if (typeof serial === 'number') {
+    const excelEpochUTC = Date.UTC(1899, 11, 30); // 30 декабря 1899 UTC
+    const utcDays = Math.floor(serial);
+    const fractionalDay = serial - utcDays;
+    const milliseconds = utcDays * 24 * 60 * 60 * 1000 + fractionalDay * 24 * 60 * 60 * 1000;
+    return new Date(excelEpochUTC + milliseconds);
+  }
+
+  return null;
+}
+
 // === ЗАГРУЗКА ФАЙЛА В KAITEN ===
 async function uploadFileToKaiten(filePath, fileName, cardId) {
   try {
@@ -48,6 +80,7 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
       knownLength: stats.size
     });
 
+    // 🔧 ИСПРАВЛЕНО: убраны лишние пробелы в URL
     const response = await fetch(`https://panna.kaiten.ru/api/latest/cards/${cardId}/files`, {
       method: 'POST',
       headers: {
@@ -71,94 +104,6 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
   }
 }
 
-// === ПАРСЕР ДАТЫ ===
-function parseDate(value) {
-  if (value == null || value === '' || (typeof value === 'string' && value.trim() === '')) {
-    return null;
-  }
-
-  // Если уже Date — проверяем валидность
-  if (value instanceof Date && !isNaN(value.getTime())) {
-    return value;
-  }
-
-  // ПРИОРИТЕТНО пробуем DD.MM.YYYY (это наш основной формат!)
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    // Проверяем, соответствует ли строка шаблону DD.MM.YYYY
-    const ddmmRegex = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/;
-    const match = trimmed.match(ddmmRegex);
-    if (match) {
-      const day = parseInt(match[1], 10);
-      const month = parseInt(match[2], 10) - 1; // месяц от 0 до 11
-      const year = parseInt(match[3], 10);
-      const date = new Date(year, month, day);
-      if (!isNaN(date.getTime()) && date.getFullYear() === year && date.getMonth() === month && date.getDate() === day) {
-        return date;
-      }
-    }
-  }
-
-  // Далее — стандартные форматы через moment
-  const formats = [
-    'DD.MM.YYYY',
-    'D.MM.YYYY',
-    'DD.M.YYYY',
-    'D.M.YYYY',
-    'DD/MM/YYYY',
-    'D/MM/YYYY',
-    'DD-MM-YYYY',
-    'D-MM-YYYY',
-    'YYYY-MM-DD',
-    'MM/DD/YYYY',
-    'M/D/YYYY',
-    'DD.MM.YY',
-    'D.M.YY'
-  ];
-
-  let parsedByMoment = null;
-  if (typeof value === 'string') {
-    for (const fmt of formats) {
-      const m = moment(trimmed, fmt, true); // strict parsing
-      if (m.isValid()) {
-        parsedByMoment = m.toDate();
-        break;
-      }
-    }
-  }
-
-  if (parsedByMoment) {
-    return parsedByMoment;
-  }
-
-  // Excel serial number
-  let numValue = null;
-  if (typeof value === 'number') {
-    numValue = value;
-  } else if (typeof value === 'string') {
-    const cleaned = value.replace(/,/g, '.').trim();
-    const asFloat = parseFloat(cleaned);
-    if (!isNaN(asFloat) && cleaned === asFloat.toString()) {
-      numValue = asFloat;
-    }
-  }
-
-  if (numValue !== null && !isNaN(numValue)) {
-    const epoch = new Date(1899, 11, 30);
-    const dateFromExcel = new Date(epoch.getTime() + (numValue - 1) * 24 * 60 * 60 * 1000);
-    if (!isNaN(dateFromExcel.getTime())) {
-      return dateFromExcel;
-    }
-  }
-
-  // Последняя попытка
-  const fallback = new Date(value);
-  if (fallback instanceof Date && !isNaN(fallback.getTime())) {
-    return fallback;
-  }
-
-  return null
-
 // === ОЧИСТКА ЗАГОЛОВКА ===
 function cleanHeader(str) {
   if (typeof str !== 'string') return '';
@@ -181,21 +126,13 @@ function generateReport(gridData, archiveData, monthName, year) {
       const cleanKey = cleanHeader(key);
       cleanRow[cleanKey] = row[key];
     }
-    cleanRow['Дата создания'] = parseDate(cleanRow['Дата создания']);
-    cleanRow['Выполнена'] = parseDate(cleanRow['Выполнена']);
+    // 🔧 ИСПОЛЬЗУЕМ НОВУЮ ФУНКЦИЮ ПАРСИНГА
+    cleanRow['Дата создания'] = excelDateToJSDate(cleanRow['Дата создания']);
+    cleanRow['Выполнена'] = excelDateToJSDate(cleanRow['Выполнена']);
     if (!cleanRow['Ответственный'] || cleanRow['Ответственный'].toString().trim() === '') {
       cleanRow['Ответственный'] = 'Неизвестно';
     }
     processed.push(cleanRow);
-  }
-
-  // 🔍 Отладка: проверка целевой задачи
-  for (let i = 0; i < processed.length; i++) {
-    const row = processed[i];
-    if (typeof row['Название'] === 'string' && row['Название'].includes('Новогодняя овечка')) {
-      console.log("🎯 Найдена задача:", row['Оценка работы']);
-      break;
-    }
   }
 
   const monthObj = moment(monthName, 'MMMM', true);
@@ -221,6 +158,8 @@ function generateReport(gridData, archiveData, monthName, year) {
       completedDesign.push(row);
     }
   }
+
+  console.log(`✅ Задач за ${monthPeriod}: ${completedDesign.length}`);
 
   const neededFields = ['Ответственный', 'Количество макетов', 'Количество предложенных вариантов', 'Оценка работы'];
   const reportMap = {};
@@ -291,11 +230,9 @@ app.post('/api/upload', upload.fields([
     const gridSheet = gridWB.Sheets[gridWB.SheetNames[0]];
     const archiveSheet = archiveWB.Sheets[archiveWB.SheetNames[0]];
 
-    // Читаем как объекты
     const gridDataRaw = xlsx.utils.sheet_to_json(gridSheet, { defval: '' });
     const archiveDataRaw = xlsx.utils.sheet_to_json(archiveSheet, { defval: '' });
 
-    // 🔹 ФИЛЬТРАЦИЯ: оставляем только нужные колонки
     const neededColumns = [
       'Название',
       'Выполнена',
@@ -353,7 +290,6 @@ app.post('/api/upload', upload.fields([
   }
 });
 
-// Слушаем на 0.0.0.0 и PORT (требование Render)
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
 });
