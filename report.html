@@ -137,7 +137,8 @@
           <option value="">Выберите год</option>
           <script>
             const currentYear = new Date().getFullYear();
-            for (let year = 2020; year <= currentYear; year++) {
+            // Генерируем годы от 2020 до 2030 включительно
+            for (let year = 2020; year <= 2030; year++) {
               document.write(`<option value="${year}">${year}</option>`);
             }
           </script>
