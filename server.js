@@ -37,14 +37,11 @@ function excelDateToJSDate(serial) {
   if (serial == null || serial === '') return null;
   if (serial instanceof Date && !isNaN(serial.getTime())) return serial;
 
-  // Строка: попробовать как дату, потом как число
   if (typeof serial === 'string') {
     const trimmed = serial.trim();
     if (trimmed === '') return null;
-
     const dateFromStr = new Date(trimmed);
     if (!isNaN(dateFromStr.getTime())) return dateFromStr;
-
     const parsed = parseFloat(trimmed.replace(/,/g, '.'));
     if (!isNaN(parsed)) {
       serial = parsed;
@@ -53,9 +50,8 @@ function excelDateToJSDate(serial) {
     }
   }
 
-  // Число: Excel serial date
   if (typeof serial === 'number') {
-    const excelEpochUTC = Date.UTC(1899, 11, 30); // 30 декабря 1899 UTC
+    const excelEpochUTC = Date.UTC(1899, 11, 30);
     const utcDays = Math.floor(serial);
     const fractionalDay = serial - utcDays;
     const milliseconds = utcDays * 24 * 60 * 60 * 1000 + fractionalDay * 24 * 60 * 60 * 1000;
@@ -80,7 +76,6 @@ async function uploadFileToKaiten(filePath, fileName, cardId) {
       knownLength: stats.size
     });
 
-    // 🔧 ИСПРАВЛЕНО: убраны лишние пробелы в URL
     const response = await fetch(`https://panna.kaiten.ru/api/latest/cards/${cardId}/files`, {
       method: 'POST',
       headers: {
@@ -110,62 +105,70 @@ function cleanHeader(str) {
   return str.replace(/\u00A0/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-// === ГЕНЕРАЦИЯ ОТЧЕТА ===
+// === ГЕНЕРАЦИЯ ПОЛНОГО ОТЧЁТА ===
 function generateReport(gridData, archiveData, monthName, year) {
   console.log("=== НАЧАЛО ФОРМИРОВАНИЯ ОТЧЕТА ===");
-  console.log(`Параметры: месяц=${monthName}, год=${year}`);
+  console.log(`Месяц: ${monthName}, Год: ${year}`);
 
   const allData = [...gridData, ...archiveData];
-  console.log(`Объединено строк: ${allData.length}`);
-
-  const processed = [];
-  for (let i = 0; i < allData.length; i++) {
-    const row = allData[i];
-    const cleanRow = {};
-    for (const key in row) {
-      const cleanKey = cleanHeader(key);
-      cleanRow[cleanKey] = row[key];
-    }
-    // 🔧 ИСПОЛЬЗУЕМ НОВУЮ ФУНКЦИЮ ПАРСИНГА
-    cleanRow['Дата создания'] = excelDateToJSDate(cleanRow['Дата создания']);
-    cleanRow['Выполнена'] = excelDateToJSDate(cleanRow['Выполнена']);
-    if (!cleanRow['Ответственный'] || cleanRow['Ответственный'].toString().trim() === '') {
-      cleanRow['Ответственный'] = 'Неизвестно';
-    }
-    processed.push(cleanRow);
-  }
-
-  const monthObj = moment(monthName, 'MMMM', true);
-  if (!monthObj.isValid()) throw new Error("Неверный месяц");
-  const monthPeriod = `${year}-${(monthObj.month() + 1).toString().padStart(2, '0')}`;
+  console.log(`Всего строк: ${allData.length}`);
 
   const textAuthors = ['Наталия Пятницкая', 'Валентина Кулябина', 'Пятницкая', 'Кулябина'];
-  const isDesigner = (row) => {
-    const resp = row['Ответственный'];
-    return resp !== 'Неизвестно' && !textAuthors.includes(resp);
-  };
+  const isTextAuthor = (resp) => textAuthors.includes(resp);
+  const isDesigner = (resp) => resp !== 'Неизвестно' && !isTextAuthor(resp);
 
-  const completedDesign = [];
-  for (let i = 0; i < processed.length; i++) {
-    const row = processed[i];
+  const processed = allData.map(row => {
+    const cleanRow = {};
+    for (const key in row) {
+      cleanRow[cleanHeader(key)] = row[key];
+    }
+    cleanRow['Дата создания'] = excelDateToJSDate(cleanRow['Дата создания']);
+    cleanRow['Выполнена'] = excelDateToJSDate(cleanRow['Выполнена']);
+    cleanRow['Ответственный'] = (!cleanRow['Ответственный'] || cleanRow['Ответственный'].toString().trim() === '')
+      ? 'Неизвестно'
+      : cleanRow['Ответственный'].toString().trim();
+    return cleanRow;
+  });
+
+  const monthPeriod = moment(`${year}-${monthName}`, 'YYYY-MMMM').format('YYYY-MM');
+  if (!moment(monthPeriod, 'YYYY-MM', true).isValid()) {
+    throw new Error("Неверный месяц или год");
+  }
+
+  let createdDesign = 0, completedDesign = 0;
+  let createdText = 0, completedText = 0;
+  let createdUnknown = 0, completedUnknown = 0;
+
+  const completedDesignRows = [];
+
+  for (const row of processed) {
+    const resp = row['Ответственный'];
+    const created = row['Дата создания'];
     const completed = row['Выполнена'];
-    if (
-      isDesigner(row) &&
-      completed &&
-      moment(completed).isValid() &&
-      moment(completed).format('YYYY-MM') === monthPeriod
-    ) {
-      completedDesign.push(row);
+
+    // Поступило
+    if (created && moment(created).isValid() && moment(created).format('YYYY-MM') === monthPeriod) {
+      if (isDesigner(resp)) createdDesign++;
+      else if (isTextAuthor(resp)) createdText++;
+      else createdUnknown++;
+    }
+
+    // Выполнено
+    if (completed && moment(completed).isValid() && moment(completed).format('YYYY-MM') === monthPeriod) {
+      if (isDesigner(resp)) {
+        completedDesign++;
+        completedDesignRows.push(row);
+      } else if (isTextAuthor(resp)) {
+        completedText++;
+      } else {
+        completedUnknown++;
+      }
     }
   }
 
-  console.log(`✅ Задач за ${monthPeriod}: ${completedDesign.length}`);
-
-  const neededFields = ['Ответственный', 'Количество макетов', 'Количество предложенных вариантов', 'Оценка работы'];
+  // === Агрегация по дизайнерам (только выполненные) ===
   const reportMap = {};
-
-  for (let i = 0; i < completedDesign.length; i++) {
-    const row = completedDesign[i];
+  for (const row of completedDesignRows) {
     const resp = row['Ответственный'];
     if (!reportMap[resp]) {
       reportMap[resp] = { Задачи: 0, Макеты: 0, Варианты: 0, Оценка: 0, count: 0 };
@@ -173,14 +176,10 @@ function generateReport(gridData, archiveData, monthName, year) {
     reportMap[resp].Задачи += 1;
     reportMap[resp].Макеты += parseInt(row['Количество макетов']) || 0;
     reportMap[resp].Варианты += parseInt(row['Количество предложенных вариантов']) || 0;
-
-    const scoreRaw = row['Оценка работы'];
-    if (scoreRaw != null && scoreRaw !== '') {
-      const score = parseFloat(scoreRaw);
-      if (!isNaN(score)) {
-        reportMap[resp].Оценка += score;
-        reportMap[resp].count += 1;
-      }
+    const score = parseFloat(row['Оценка работы']);
+    if (!isNaN(score)) {
+      reportMap[resp].Оценка += score;
+      reportMap[resp].count += 1;
     }
   }
 
@@ -195,7 +194,20 @@ function generateReport(gridData, archiveData, monthName, year) {
     });
   }
 
-  const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА\n\nДизайнеры — выполнено задач: ${completedDesign.length}`;
+  // === Текстовый отчёт ===
+  const textReport = `ОТЧЕТ ЗА ${monthName.toUpperCase()} ${year} ГОДА
+
+Дизайнеры:
+- Поступило задач: ${createdDesign}
+- Выполнено задач: ${completedDesign}
+
+Текстовые задачи:
+- Поступило: ${createdText}
+- Выполнено: ${completedText}
+
+Задачи без ответственного:
+- Поступило: ${createdUnknown}
+- Выполнено: ${completedUnknown}`;
 
   console.log("✅ Отчёт сформирован");
   return { report, textReport };
@@ -235,6 +247,7 @@ app.post('/api/upload', upload.fields([
 
     const neededColumns = [
       'Название',
+      'Дата создания',
       'Выполнена',
       'Ответственный',
       'Оценка работы',
@@ -242,7 +255,7 @@ app.post('/api/upload', upload.fields([
       'Количество предложенных вариантов'
     ];
 
-    const gridData = gridDataRaw.map(row => {
+    const filterColumns = (rows) => rows.map(row => {
       const filtered = {};
       neededColumns.forEach(col => {
         filtered[col] = row[col];
@@ -250,13 +263,8 @@ app.post('/api/upload', upload.fields([
       return filtered;
     });
 
-    const archiveData = archiveDataRaw.map(row => {
-      const filtered = {};
-      neededColumns.forEach(col => {
-        filtered[col] = row[col];
-      });
-      return filtered;
-    });
+    const gridData = filterColumns(gridDataRaw);
+    const archiveData = filterColumns(archiveDataRaw);
 
     const { report, textReport } = generateReport(gridData, archiveData, month, parseInt(year));
 
